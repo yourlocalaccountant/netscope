@@ -1,3 +1,3 @@
-NetScope 0.2.0
-Source: 8689567ca159d11017ddcf80a4d8eeca4e9a0829
+NetScope 0.3.0
+Source: 04674b955410c8a40065a405a8fe8b30f3889886
 Windows smoke test: passed
