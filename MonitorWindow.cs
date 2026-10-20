@@ -588,6 +588,7 @@ sealed class MonitorWindow : Form
         var initial = new[] { new GridRow("a", null, "Alpha", "1 KB/s"), new GridRow("b", null, "Beta", "2 KB/s") };
         updater.Apply(sample, initial); var alpha = sample.Rows[0]; var beta = sample.Rows[1];
         sample.CurrentCell = beta.Cells[0]; beta.Selected = true;
+        if (alpha.Height != sample.RowTemplate.Height || beta.Height != sample.RowTemplate.Height || beta.Height < 34) throw new Exception("Inserted rows did not inherit the larger row height.");
         var watch = Stopwatch.StartNew();
         for (int i = 0; i < 50; i++) if (updater.Apply(sample, initial) != new GridChanges(0, 0, 0, 0)) throw new Exception("Unchanged samples modified grid rows.");
         watch.Stop();

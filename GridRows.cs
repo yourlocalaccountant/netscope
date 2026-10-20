@@ -25,7 +25,7 @@ sealed class GridRows
                 var item = desired[index];
                 if (!rows.TryGetValue(item.Key, out var row))
                 {
-                    row = new DataGridViewRow(); row.CreateCells(grid); grid.Rows.Insert(index, row); row = grid.Rows[index]; rows[item.Key] = row; inserted++;
+                    row = new DataGridViewRow { Height = grid.RowTemplate.Height, MinimumHeight = grid.RowTemplate.MinimumHeight }; row.CreateCells(grid); grid.Rows.Insert(index, row); row = grid.Rows[index]; rows[item.Key] = row; inserted++;
                 }
                 else if (row.Index != index)
                 {
