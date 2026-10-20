@@ -32,6 +32,7 @@ sealed class TrafficCapture : IDisposable
                 var flow = receive ? FlowId.Create(pid, protocol, destination, destinationPort, source, sourcePort) : FlowId.Create(pid, protocol, source, sourcePort, destination, destinationPort);
                 if (flows.Count < 50000 || flows.ContainsKey(flow)) flows.AddOrUpdate(flow, delta, (_, old) => new(old.Down + delta.Down, old.Up + delta.Up));
             }
+            session.EnableKernelProvider(KernelTraceEventParser.Keywords.NetworkTCPIP);
             var kernel = session.Source.Kernel;
             kernel.TcpIpRecv += d => Add(d.ProcessID, d.size, true, "TCP", d.saddr, d.sport, d.daddr, d.dport);
             kernel.TcpIpSend += d => Add(d.ProcessID, d.size, false, "TCP", d.saddr, d.sport, d.daddr, d.dport);
@@ -47,7 +48,6 @@ sealed class TrafficCapture : IDisposable
             kernel.TcpIpConnectIPV6 += d => Direction(d.ProcessID, d.saddr, d.sport, d.daddr, d.dport, "Outgoing connection");
             kernel.TcpIpAccept += d => Direction(d.ProcessID, d.daddr, d.dport, d.saddr, d.sport, "Incoming connection");
             kernel.TcpIpAcceptIPV6 += d => Direction(d.ProcessID, d.daddr, d.dport, d.saddr, d.sport, "Incoming connection");
-            session.EnableKernelProvider(KernelTraceEventParser.Keywords.NetworkTCPIP);
             Running = true; Status = "Per-app traffic capture active";
             worker = Task.Run(() => { try { session.Source.Process(); } catch (Exception ex) { Status = "Traffic capture stopped: " + ex.Message; } finally { Running = false; } });
         }

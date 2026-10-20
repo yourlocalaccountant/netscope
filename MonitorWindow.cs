@@ -497,6 +497,7 @@ sealed class MonitorWindow : Form
     public string SmokeTest()
     {
         var checks = new List<string>();
+        if (TrafficCapture.IsAdmin && !capture.Running) throw new Exception(capture.Status);
         if (tabs.TabPages.Count != 8 || activity.Columns.Count != 9) throw new Exception("Activity layout does not have the expected tabs and columns.");
         foreach (var name in tabNames) { SelectTab(name); RenderAuxiliary(); checks.Add("Tab OK: " + name); }
         SelectTab("Activity"); Render();
