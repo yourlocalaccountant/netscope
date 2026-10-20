@@ -82,7 +82,7 @@ sealed class MonitorWindow : Form
         root.RowStyles.Add(new(SizeType.Absolute, 52)); root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 27)); Controls.Add(root);
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new(5, 6, 0, 0), BackColor = Color.FromArgb(248, 248, 248) };
         toolbar.Controls.Add(new Label { Text = "NS", ForeColor = Color.OliveDrab, Font = new("Segoe UI", 10, FontStyle.Bold), AutoSize = true, Margin = new(3, 5, 10, 0) });
-        var menu = new MenuStrip { AutoSize = true, BackColor = toolbar.BackColor, Padding = Padding.Empty, Margin = new(0, 0, 3, 0) };
+        var menu = new MenuStrip { Font = Font, AutoSize = true, BackColor = toolbar.BackColor, Padding = Padding.Empty, Margin = new(0, 0, 3, 0) };
         var file = new ToolStripMenuItem("File"); file.DropDownItems.Add("Export visible CSV", null, (_, _) => Export()); file.DropDownItems.Add("Open settings folder", null, (_, _) => { Directory.CreateDirectory(Preferences.DirectoryPath); Process.Start(new ProcessStartInfo("explorer.exe", Preferences.DirectoryPath) { UseShellExecute = true }); }); file.DropDownItems.Add("Exit", null, (_, _) => Close());
         var view = new ToolStripMenuItem("View"); view.DropDownItems.Add("Expand all", null, (_, _) => { foreach (var pid in known.Keys) expanded.Add(pid); Render(); }); view.DropDownItems.Add("Collapse all", null, (_, _) => { expanded.Clear(); Render(); });
         var tools = new ToolStripMenuItem("Tools"); tools.DropDownItems.Add("Restart as administrator", null, (_, _) => Elevate()); tools.DropDownItems.Add("Retry provider lookups", null, (_, _) => providers.RetryFailures()); tools.DropDownItems.Add("Connection history", null, (_, _) => ShowHistory()); tools.DropDownItems.Add("Windows Firewall console", null, (_, _) => Process.Start(new ProcessStartInfo("mmc.exe", "wf.msc") { UseShellExecute = true }));
@@ -115,7 +115,7 @@ sealed class MonitorWindow : Form
         activity.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0 && activity.Rows[e.RowIndex].Tag is AppInfo a) { int x = activity.PointToClient(Cursor.Position).X - activity.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, false).Left; if (e.ColumnIndex != 1 || x > 32) ToggleExpanded(a); } };
         activity.CellMouseClick += (_, e) => { if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex == 1 && e.X <= 32 && activity.Rows[e.RowIndex].Tag is AppInfo a) ToggleExpanded(a); };
         activity.SelectionChanged += (_, _) => { if (!rendering && activity.SelectedRows.Count > 0) Select(activity.SelectedRows[0].Tag); };
-        var context = new ContextMenuStrip(); context.Items.Add("Add rule…", null, async (_, _) => await AddRule()); context.Items.Add("Connection history", null, (_, _) => ShowHistory()); context.Items.Add("Hide / unhide application", null, (_, _) => HideApp()); context.Items.Add("Close IPv4 TCP connections…", null, async (_, _) => await KillConnections()); activity.ContextMenuStrip = context;
+        var context = new ContextMenuStrip { Font = Font }; context.Items.Add("Add rule…", null, async (_, _) => await AddRule()); context.Items.Add("Connection history", null, (_, _) => ShowHistory()); context.Items.Add("Hide / unhide application", null, (_, _) => HideApp()); context.Items.Add("Close IPv4 TCP connections…", null, async (_, _) => await KillConnections()); activity.ContextMenuStrip = context;
         activity.CellMouseDown += (_, e) => { if (e.Button == MouseButtons.Right && e.RowIndex >= 0) { activity.ClearSelection(); activity.Rows[e.RowIndex].Selected = true; } };
         for (int i = 1; i < tabNames.Length; i++)
         {
@@ -425,7 +425,7 @@ sealed class MonitorWindow : Form
                 bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 46, Padding = new(4) };
                 bar.Controls.Add(Button("Add rule…", async () => await AddRule())); bar.Controls.Add(Button("Enable / disable", async () => await ToggleRule())); bar.Controls.Add(Button("Delete selected", async () => await DeleteRule())); bar.Controls.Add(Button("Reset quota / unblock", async () => await ResetQuota())); panel.Controls.Add(bar);
             }
-            bar.BringToFront();
+            rules.BringToFront();
         }
     }
     void RenderAuxiliary()
