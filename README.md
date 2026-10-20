@@ -1,10 +1,20 @@
-# NetScope 0.2
+# NetScope 0.3
 
 Windows network monitor with a NetLimiter-inspired activity tree, selected-connection properties, rules sidebar, and traffic chart. Original branding and implementation.
 
 [Download the Windows x64 portable app](https://github.com/yourlocalaccountant/netscope/raw/refs/heads/main/downloads/NetScope-Windows-x64.zip). Sign into GitHub with access to this private repository, extract the ZIP, and run **NetScope.exe**. Includes the .NET runtime; the executable is unsigned.
 
 Use **Tools → Restart as administrator** to capture per-app/per-connection traffic and change Windows policies.
+
+## Display and performance
+
+The window opens maximized with larger text, 34-pixel rows, larger headers and consistent spacing. Application status dots and decorative connection arrows have been removed. The status column supplies online/offline state.
+
+The activity tree and other tables keep their row objects and update changed cells in place. Selection, scroll position and expansion are preserved. Rows are inserted/removed only when data changes. Default sorting is by name. Rate sorting remains stable between manual re-sorts, so apps do not jump around as traffic changes.
+
+Display updates default to **5 seconds**. Choose 2 seconds, 10 seconds, or **Manual**, and use **Update now** when needed. Background traffic sampling and quota checks continue independently. Process executable paths are cached, connection tables are sampled every 2 seconds, and the sidebar's controls are reused.
+
+An app with no remote IPs can still be expanded and has **zero child rows**. TCP listeners and UDP bindings are hidden from the default activity view. Choose **Listeners / UDP** explicitly to inspect their real local endpoints. No placeholder IP rows or blank arrow/dash rows are created.
 
 ## Selected-IP view
 

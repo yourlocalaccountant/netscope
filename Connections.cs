@@ -39,11 +39,6 @@ static class Program
         }
     }
 }
-record Connection(int Pid, string Protocol, string Local, IPAddress Remote, int Port, string State)
-{
-    public string Key => $"{Pid}|{Protocol}|{Local}|{Remote}|{Port}";
-    public FlowId Flow { get { var local = IPEndPoint.Parse(Local); return FlowId.Create(Pid, Protocol, local.Address, local.Port, Remote, Port); } }
-}
 static class Connections
 {
     [DllImport("iphlpapi.dll", SetLastError = true)]

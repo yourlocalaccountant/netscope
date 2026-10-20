@@ -17,11 +17,12 @@ sealed class HistoryEntry
 sealed class MonitorWindow : Form
 {
     readonly DataGridView activity = Grid(), rules = Grid(), filters = Grid(), applications = Grid(), networks = Grid();
-    readonly TabControl tabs = new() { Dock = DockStyle.Fill, DrawMode = TabDrawMode.OwnerDrawFixed, ItemSize = new(85, 27), SizeMode = TabSizeMode.Normal };
+    readonly TabControl tabs = new() { Dock = DockStyle.Fill, DrawMode = TabDrawMode.OwnerDrawFixed, ItemSize = new(100, 34), SizeMode = TabSizeMode.Normal };
     readonly TextBox search = new() { Width = 260, PlaceholderText = "Search application, IP, ISP or ASN" };
     readonly ComboBox stateFilter = new() { Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly ComboBox scopeFilter = new() { Width = 120, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly ComboBox sort = new() { Width = 95, DropDownStyle = ComboBoxStyle.DropDownList };
+    readonly ComboBox cadence = new() { Width = 120, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly ComboBox units = new() { Width = 80, DropDownStyle = ComboBoxStyle.DropDownList };
     readonly CheckBox lookup = new() { Text = "ISP / ASN online", AutoSize = true };
     readonly Label status = new() { Dock = DockStyle.Fill, ForeColor = Color.White, BackColor = Color.FromArgb(0, 153, 210), TextAlign = ContentAlignment.MiddleLeft, Padding = new(7, 0, 0, 0) };
@@ -39,6 +40,17 @@ sealed class MonitorWindow : Form
     readonly Dictionary<string, Label> propertyValues = new();
     readonly TrafficCapture capture = new();
     readonly TrafficTimeline timeline = new();
+    readonly GridRows activityRows = new(), ruleRows = new(), filterRows = new(), applicationRows = new(), networkRows = new();
+    readonly Dictionary<(int Col, int Row), Label> summaryLabels = new();
+    readonly Dictionary<int, (double Down, double Up)> displayedRates = new();
+    readonly Dictionary<FlowId, (double Down, double Up)> displayedFlowRates = new();
+    readonly Dictionary<int, TrafficTotal> displayedPrevious = new();
+    readonly Dictionary<FlowId, TrafficTotal> displayedFlowPrevious = new();
+    readonly HashSet<int> activePids = new();
+    readonly Dictionary<int, int> rateOrder = new();
+    DateTime lastVisual = DateTime.MinValue, nextConnectionsRead = DateTime.MinValue;
+    bool reorderByRate = true;
+    GridChanges lastActivityChanges;
     long computerReceived, computerSent;
     readonly Preferences settings;
     readonly HashSet<int> expanded = new();
@@ -64,17 +76,18 @@ sealed class MonitorWindow : Form
     readonly string[] tabNames = { "Activity", "Rule List", "Filter List", "Application List", "Network List", "Blocker", "Priorities", "Quotas" };
     public MonitorWindow()
     {
-        settings = Preferences.Load(); Text = "NetScope — Activity"; Size = new(1520, 940); MinimumSize = new(1150, 700); StartPosition = FormStartPosition.CenterScreen;
-        Font = new("Segoe UI", 9); BackColor = Color.White;
+        settings = Preferences.Load(); Text = "NetScope — Activity"; Size = new(1720, 1080); MinimumSize = new(1200, 780); WindowState = FormWindowState.Maximized; StartPosition = FormStartPosition.CenterScreen;
+        Font = new("Segoe UI", 10.5f); BackColor = Color.White;
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1, Padding = Padding.Empty };
-        root.RowStyles.Add(new(SizeType.Absolute, 42)); root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 27)); Controls.Add(root);
+        root.RowStyles.Add(new(SizeType.Absolute, 52)); root.RowStyles.Add(new(SizeType.Percent, 100)); root.RowStyles.Add(new(SizeType.Absolute, 27)); Controls.Add(root);
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new(5, 6, 0, 0), BackColor = Color.FromArgb(248, 248, 248) };
         toolbar.Controls.Add(new Label { Text = "NS", ForeColor = Color.OliveDrab, Font = new("Segoe UI", 10, FontStyle.Bold), AutoSize = true, Margin = new(3, 5, 10, 0) });
         var menu = new MenuStrip { AutoSize = true, BackColor = toolbar.BackColor, Padding = Padding.Empty, Margin = new(0, 0, 3, 0) };
         var file = new ToolStripMenuItem("File"); file.DropDownItems.Add("Export visible CSV", null, (_, _) => Export()); file.DropDownItems.Add("Open settings folder", null, (_, _) => { Directory.CreateDirectory(Preferences.DirectoryPath); Process.Start(new ProcessStartInfo("explorer.exe", Preferences.DirectoryPath) { UseShellExecute = true }); }); file.DropDownItems.Add("Exit", null, (_, _) => Close());
+        var view = new ToolStripMenuItem("View"); view.DropDownItems.Add("Expand all", null, (_, _) => { foreach (var pid in known.Keys) expanded.Add(pid); Render(); }); view.DropDownItems.Add("Collapse all", null, (_, _) => { expanded.Clear(); Render(); });
         var tools = new ToolStripMenuItem("Tools"); tools.DropDownItems.Add("Restart as administrator", null, (_, _) => Elevate()); tools.DropDownItems.Add("Retry provider lookups", null, (_, _) => providers.RetryFailures()); tools.DropDownItems.Add("Connection history", null, (_, _) => ShowHistory()); tools.DropDownItems.Add("Windows Firewall console", null, (_, _) => Process.Start(new ProcessStartInfo("mmc.exe", "wf.msc") { UseShellExecute = true }));
-        var help = new ToolStripMenuItem("Help"); help.Click += (_, _) => MessageBox.Show(this, "NetScope 0.2\n\nPer-app TCP/UDP rates: Windows ETW, administrator required.\nBlocker: Windows Firewall. Upload limits / DSCP: Windows QoS.\nDownload limits require a packet-filtering driver.\nSession quotas count observed traffic while capture is running; automatic blocking is optional.\n\nOnline ISP/ASN resolution sends public remote IPs to ipwho.is.\nWindows policies persist after exit until removed in Rule List.\nProtected processes may not expose their executable path.", "About NetScope");
-        menu.Items.AddRange(new ToolStripItem[] { file, tools, help }); toolbar.Controls.Add(menu);
+        var help = new ToolStripMenuItem("Help"); help.Click += (_, _) => MessageBox.Show(this, "NetScope 0.3\n\nPer-app TCP/UDP rates: Windows ETW, administrator required.\nBlocker: Windows Firewall. Upload limits / DSCP: Windows QoS.\nDownload limits require a packet-filtering driver.\nSession quotas count observed traffic while capture is running; automatic blocking is optional.\n\nOnline ISP/ASN resolution sends public remote IPs to ipwho.is.\nWindows policies persist after exit until removed in Rule List.\nProtected processes may not expose their executable path.", "About NetScope");
+        menu.Items.AddRange(new ToolStripItem[] { file, view, tools, help }); toolbar.Controls.Add(menu);
         toolbar.Controls.Add(new Label { Text = "Units", AutoSize = true, Margin = new(5, 5, 2, 0) }); units.Items.AddRange(new object[] { "autoByte", "Bits" }); units.SelectedIndex = 0; units.SelectedIndexChanged += (_, _) => { Display.Bits = units.SelectedIndex == 1; Render(); graph.Invalidate(); }; toolbar.Controls.Add(units);
         foreach (var item in new[] { (RuleKind.Block, "Blocker On"), (RuleKind.UploadLimit, "Limiter On"), (RuleKind.Priority, "Priorities On") })
         {
@@ -87,16 +100,20 @@ sealed class MonitorWindow : Form
         var split = new SplitContainer { Dock = DockStyle.Fill, SplitterWidth = 5, BackColor = Color.FromArgb(240, 240, 240) }; root.Controls.Add(split, 0, 1);
         split.Panel1.Controls.Add(tabs); foreach (var name in tabNames) tabs.TabPages.Add(new TabPage(name) { BackColor = Color.White, Padding = Padding.Empty });
         tabs.DrawItem += (_, e) => { bool active = e.Index == tabs.SelectedIndex; using var brush = new SolidBrush(active ? Color.FromArgb(206, 222, 48) : Color.FromArgb(239, 239, 239)); e.Graphics.FillRectangle(brush, e.Bounds); TextRenderer.DrawText(e.Graphics, tabs.TabPages[e.Index].Text, Font, e.Bounds, Color.FromArgb(20, 50, 80), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter); };
-        var activityPage = tabs.TabPages[0]; var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 }; left.RowStyles.Add(new(SizeType.Absolute, 37)); left.RowStyles.Add(new(SizeType.Percent, 100)); activityPage.Controls.Add(left);
+        var activityPage = tabs.TabPages[0]; var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2 }; left.RowStyles.Add(new(SizeType.Absolute, 46)); left.RowStyles.Add(new(SizeType.Percent, 100)); activityPage.Controls.Add(left);
         var controls = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Padding = new(4, 4, 0, 0) };
-        sort.Items.AddRange(new object[] { "Rate", "Name", "PID" }); sort.SelectedIndex = 0; stateFilter.Items.AddRange(new object[] { "All", "Online", "Offline", "Hidden" }); stateFilter.SelectedIndex = 0;
+        sort.Items.AddRange(new object[] { "Rate", "Name", "PID" }); sort.SelectedIndex = 1; stateFilter.Items.AddRange(new object[] { "All", "Online", "Offline", "Hidden" }); stateFilter.SelectedIndex = 0;
         scopeFilter.Items.AddRange(new object[] { "All", "Internet", "Local network", "Listeners / UDP" }); scopeFilter.SelectedItem = settings.Filter; if (scopeFilter.SelectedIndex < 0) scopeFilter.SelectedIndex = 0;
-        var pause = Button("Ⅱ Pause", () => { paused = !paused; }); pause.Click += (_, _) => pause.Text = paused ? "▶ Resume" : "Ⅱ Pause";
-        controls.Controls.AddRange(new Control[] { sort, stateFilter, scopeFilter, pause, Button("Export", Export), Button("Expand all", () => { foreach (var p in known.Keys) expanded.Add(p); Render(); }), Button("Collapse all", () => { expanded.Clear(); Render(); }) });
+        var pause = Button("Pause", () => { paused = !paused; if (!paused) RefreshVisible(true); else status.Text = "View paused; background capture and quota checks continue."; }); pause.Click += (_, _) => pause.Text = paused ? "Resume" : "Pause";
+        cadence.Items.AddRange(new object[] { "2 seconds", "5 seconds", "10 seconds", "Manual" });
+        cadence.SelectedIndex = settings.DisplaySeconds switch { 2 => 0, 10 => 2, 0 => 3, _ => 1 };
+        cadence.SelectedIndexChanged += (_, _) => { settings.DisplaySeconds = cadence.SelectedIndex switch { 0 => 2, 2 => 10, 3 => 0, _ => 5 }; Save(); };
+        controls.Controls.AddRange(new Control[] { sort, stateFilter, scopeFilter, cadence, Button("Update now", () => { reorderByRate = true; RefreshVisible(true); }), pause });
         left.Controls.Add(controls, 0, 0); left.Controls.Add(activity, 0, 1);
-        activity.Columns.Add(new DataGridViewImageColumn { HeaderText = "", Width = 24, DefaultCellStyle = new DataGridViewCellStyle { NullValue = null }, ImageLayout = DataGridViewImageCellLayout.Zoom });
-        Columns(activity, ("Name", 220), ("DL Rate", 85), ("UL Rate", 85), ("Rule Status", 140), ("Remote IP : Port", 190), ("ISP / Provider", 180), ("ASN", 85), ("Status", 100));
-        activity.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0 && activity.Rows[e.RowIndex].Tag is AppInfo a) { if (!expanded.Add(a.Pid)) expanded.Remove(a.Pid); Render(); } };
+        activity.Columns.Add(new DataGridViewImageColumn { HeaderText = "", Width = 30, DefaultCellStyle = new DataGridViewCellStyle { NullValue = null }, ImageLayout = DataGridViewImageCellLayout.Zoom });
+        Columns(activity, ("Name", 290), ("DL Rate", 105), ("UL Rate", 105), ("Rule Status", 160), ("Remote IP : Port", 220), ("ISP / Provider", 220), ("ASN", 105), ("Status", 120));
+        activity.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0 && activity.Rows[e.RowIndex].Tag is AppInfo a) { int x = activity.PointToClient(Cursor.Position).X - activity.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, false).Left; if (e.ColumnIndex != 1 || x > 32) ToggleExpanded(a); } };
+        activity.CellMouseClick += (_, e) => { if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex == 1 && e.X <= 32 && activity.Rows[e.RowIndex].Tag is AppInfo a) ToggleExpanded(a); };
         activity.SelectionChanged += (_, _) => { if (!rendering && activity.SelectedRows.Count > 0) Select(activity.SelectedRows[0].Tag); };
         var context = new ContextMenuStrip(); context.Items.Add("Add rule…", null, async (_, _) => await AddRule()); context.Items.Add("Connection history", null, (_, _) => ShowHistory()); context.Items.Add("Hide / unhide application", null, (_, _) => HideApp()); context.Items.Add("Close IPv4 TCP connections…", null, async (_, _) => await KillConnections()); activity.ContextMenuStrip = context;
         activity.CellMouseDown += (_, e) => { if (e.Button == MouseButtons.Right && e.RowIndex >= 0) { activity.ClearSelection(); activity.Rows[e.RowIndex].Selected = true; } };
@@ -126,6 +143,11 @@ sealed class MonitorWindow : Form
         }
         propertySection.Controls.Add(Section("⌃  Connection properties")); propertySection.Controls.Add(properties); info.Controls.Add(propertySection); info.Controls.Add(Section("⌃  Rules"));
         ruleSummary.ColumnStyles.Add(new(SizeType.Absolute, 85)); ruleSummary.ColumnStyles.Add(new(SizeType.Percent, 50)); ruleSummary.ColumnStyles.Add(new(SizeType.Percent, 50));
+        for (int row = 0; row < 5; row++) for (int col = 0; col < 3; col++)
+        {
+            var label = new Label { AutoSize = true, Padding = new(4), ForeColor = col == 0 ? Color.FromArgb(25, 45, 65) : Color.SlateGray };
+            summaryLabels[(col, row)] = label; ruleSummary.Controls.Add(label, col, row);
+        }
         info.Controls.Add(ruleSummary); var add = new LinkLabel { Text = "Add rule", AutoSize = true }; add.LinkClicked += async (_, _) => await AddRule(); info.Controls.Add(add);
         info.Controls.Add(Section("⌃  Tools")); var links = new FlowLayoutPanel { Width = 375, Height = 62 };
         void Link(string text, Action action) { var l = new LinkLabel { Text = text, AutoSize = true, Margin = new(0, 3, 12, 5) }; l.LinkClicked += (_, _) => action(); links.Controls.Add(l); }
@@ -144,45 +166,51 @@ sealed class MonitorWindow : Form
             links.Width = width; links.Height = 80;
         }
         info.SizeChanged += (_, _) => FitInfo();
-        root.Controls.Add(status, 0, 2); search.TextChanged += (_, _) => { Render(); RenderAuxiliary(); }; stateFilter.SelectedIndexChanged += (_, _) => Render(); sort.SelectedIndexChanged += (_, _) => Render(); scopeFilter.SelectedIndexChanged += (_, _) => { settings.Filter = scopeFilter.Text; Save(); Render(); };
-        Shown += async (_, _) => { split.SplitterDistance = Math.Max(650, split.Width - 430); split.Panel1MinSize = 620; split.Panel2MinSize = 350; capture.Start(); captureStatus.Text = capture.Status; await Tick(); timer.Start(); };
+        root.Controls.Add(status, 0, 2); search.TextChanged += (_, _) => { Render(); RenderAuxiliary(); }; stateFilter.SelectedIndexChanged += (_, _) => Render(); sort.SelectedIndexChanged += (_, _) => { reorderByRate = true; Render(); }; scopeFilter.SelectedIndexChanged += (_, _) => { settings.Filter = scopeFilter.Text; Save(); Render(); };
+        Shown += async (_, _) => { split.SplitterDistance = Math.Max(650, split.Width - 480); split.Panel1MinSize = 620; split.Panel2MinSize = 350; capture.Start(); captureStatus.Text = capture.Status; await Tick(); timer.Start(); };
         timer.Tick += async (_, _) => await Tick();
         FormClosed += (_, _) => { shuttingDown = true; timer.Stop(); timer.Dispose(); capture.Dispose(); providers.Dispose(); foreach (var icon in icons.Values) icon.Dispose(); };
         AttachRules(); UpdateDetails();
     }
     static DataGridView Grid()
     {
-        var g = new DataGridView { Dock = DockStyle.Fill, BackgroundColor = Color.White, BorderStyle = BorderStyle.None, ReadOnly = true, AllowUserToAddRows = false, AllowUserToDeleteRows = false, RowHeadersVisible = false, MultiSelect = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, EnableHeadersVisualStyles = false, ColumnHeadersHeight = 38, CellBorderStyle = DataGridViewCellBorderStyle.None, ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single };
-        g.ColumnHeadersDefaultCellStyle = new() { BackColor = Color.White, ForeColor = Color.FromArgb(22, 51, 76), Alignment = DataGridViewContentAlignment.MiddleCenter, Font = new("Segoe UI", 9) }; g.RowTemplate.Height = 24;
+        var g = new DataGridView { Dock = DockStyle.Fill, BackgroundColor = Color.White, BorderStyle = BorderStyle.None, ReadOnly = true, AllowUserToAddRows = false, AllowUserToDeleteRows = false, RowHeadersVisible = false, MultiSelect = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, EnableHeadersVisualStyles = false, ColumnHeadersHeight = 44, CellBorderStyle = DataGridViewCellBorderStyle.None, ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single };
+        g.ColumnHeadersDefaultCellStyle = new() { BackColor = Color.White, ForeColor = Color.FromArgb(22, 51, 76), Alignment = DataGridViewContentAlignment.MiddleCenter, Font = new("Segoe UI", 10.5f) }; g.Font = new("Segoe UI", 10.5f); g.RowTemplate.Height = 34;
         g.DefaultCellStyle.SelectionBackColor = Color.FromArgb(0, 171, 230); g.DefaultCellStyle.SelectionForeColor = Color.White; g.DefaultCellStyle.ForeColor = Color.FromArgb(25, 44, 65); g.DefaultCellStyle.Padding = new(3, 0, 3, 0);
         typeof(DataGridView).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.SetValue(g, true); return g;
     }
     static void Columns(DataGridView grid, params (string Name, int Width)[] columns) { foreach (var c in columns) grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = c.Name, Width = c.Width, SortMode = DataGridViewColumnSortMode.NotSortable }); }
-    static Button Button(string name, Action action) { var b = new Button { Text = name, AutoSize = true, Height = 25, FlatStyle = FlatStyle.System, Margin = new(3, 1, 3, 1) }; b.Click += (_, _) => action(); return b; }
+    static Button Button(string name, Action action) { var b = new Button { Text = name, AutoSize = true, Height = 32, FlatStyle = FlatStyle.System, Margin = new(3, 1, 3, 1) }; b.Click += (_, _) => action(); return b; }
     static Label Bar(string text) => new() { Text = text, Dock = DockStyle.Fill, BackColor = Color.FromArgb(239, 239, 239), ForeColor = Color.FromArgb(27, 51, 73), TextAlign = ContentAlignment.MiddleLeft, Padding = new(9, 0, 0, 0) };
     static Label Section(string text) => new() { Text = text, AutoSize = true, Margin = new(0, 17, 0, 10) };
     void SelectTab(string name) => tabs.SelectedIndex = Array.IndexOf(tabNames, name);
     AppInfo? SelectedApp => selectedPid.HasValue ? known.GetValueOrDefault(selectedPid.Value) : null;
-    static AppInfo ReadApp(int pid)
+    static AppInfo ReadApp(int pid, AppInfo? cached = null)
     {
-        try { using var p = Process.GetProcessById(pid); string path = ""; DateTime start = DateTime.MinValue; try { path = p.MainModule?.FileName ?? ""; } catch { } try { start = p.StartTime; } catch { } return new(pid, p.ProcessName, path, start); }
+        try { using var p = Process.GetProcessById(pid); DateTime start = DateTime.MinValue; try { start = p.StartTime; } catch { } if (cached != null && cached.Started == start) return cached; string path = ""; try { path = p.MainModule?.FileName ?? ""; } catch { } return new(pid, p.ProcessName, path, start); }
         catch { return new(pid, pid == 0 ? "System" : "Process " + pid, "", DateTime.MinValue); }
     }
     string Endpoint(Connection c) => c.Port == 0 ? "—" : c.Remote.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{c.Remote}]:{c.Port}" : $"{c.Remote}:{c.Port}";
     bool Hidden(AppInfo app) => app.Path.Length > 0 && settings.HiddenPaths.Contains(app.Path, StringComparer.OrdinalIgnoreCase);
-    bool Active(int pid) => current.Any(c => c.Pid == pid);
+    bool Active(int pid) => activePids.Contains(pid);
     void Save() { try { settings.Save(); } catch (Exception ex) { MessageBox.Show(this, "Settings could not be saved: " + ex.Message); } }
     async Task Tick()
     {
         if (busy || shuttingDown) return; busy = true;
         try
         {
-            var snapshot = await Task.Run(() => { var list = Connections.Read(); var apps = list.Select(c => c.Pid).Distinct().ToDictionary(p => p, ReadApp); return (list, apps); }); if (shuttingDown) return;
-            current = snapshot.list;
-            foreach (var app in snapshot.apps.Values)
+            if (DateTime.UtcNow >= nextConnectionsRead)
             {
-                if (known.TryGetValue(app.Pid, out var old) && old.Started != DateTime.MinValue && app.Started != old.Started) { previous.Remove(app.Pid); sessionTotals.Remove(app.Pid); previous[app.Pid] = capture.Snapshot().GetValueOrDefault(app.Pid) ?? new(0, 0); }
-                known[app.Pid] = app;
+                var cached = known.ToDictionary(x => x.Key, x => x.Value);
+                var snapshot = await Task.Run(() => { var list = Connections.Read(); var apps = list.Select(c => c.Pid).Distinct().ToDictionary(p => p, p => ReadApp(p, cached.GetValueOrDefault(p))); return (list, apps); });
+                if (shuttingDown) return;
+                current = snapshot.list; activePids.Clear(); foreach (var pid in snapshot.apps.Keys) activePids.Add(pid);
+                foreach (var app in snapshot.apps.Values)
+                {
+                    if (known.TryGetValue(app.Pid, out var old) && old.Started != DateTime.MinValue && app.Started != old.Started) { sessionTotals.Remove(app.Pid); previous[app.Pid] = capture.Snapshot().GetValueOrDefault(app.Pid) ?? new(0, 0); }
+                    known[app.Pid] = app;
+                }
+                nextConnectionsRead = DateTime.UtcNow.AddSeconds(2);
             }
             var now = DateTime.UtcNow; double seconds = Math.Max(.1, (now - previousTime).TotalSeconds);
             var observed = capture.Snapshot(); rates.Clear();
@@ -226,70 +254,99 @@ sealed class MonitorWindow : Form
             timeline.Record("computer", now, totalDownRate, totalUpRate);
             foreach (var item in rates) timeline.Record("app:" + item.Key, now, item.Value.Down, item.Value.Up);
             foreach (var item in flowRates) timeline.Record("flow:" + item.Key, now, item.Value.Down, item.Value.Up);
-            if (!paused)
-            {
-                RefreshGraph();
-                Render(); RenderAuxiliary(); UpdateDetails();
-            }
-            captureStatus.Text = capture.Status + $" · lost events: {capture.LostEvents}. ETW reports observed transport traffic; dropped events or protected apps may undercount.";
-            status.Text = $"{(paused ? "Ⅱ View paused; capture and quota checks continue" : "● Monitoring")}  ·  {current.Select(c => c.Pid).Distinct().Count()} applications  ·  {current.Count} endpoints  ·  ↓ {Display.Rate(totalDownRate)}   ↑ {Display.Rate(totalUpRate)}  ·  {(TrafficCapture.IsAdmin ? "Administrator" : "Read-only; admin enables rates and Windows rules")}";
+            if (DisplaySchedule.Due(lastVisual, now, settings.DisplaySeconds, paused)) RefreshVisible(true);
             if (lookup.Checked && !resolving) _ = Resolve();
         }
         catch (Exception ex) { status.Text = "Monitor error: " + ex.Message; }
         finally { busy = false; }
     }
     static string HistoryKey(Connection c, AppInfo a) => c.Key + "|" + a.Started.Ticks;
-    async Task Resolve() { resolving = true; try { await providers.Resolve(current.Select(c => c.Remote).ToArray(), () => !shuttingDown && lookup.Checked); if (!shuttingDown && !paused) { Render(); UpdateDetails(); } } catch (Exception ex) { if (!shuttingDown) status.Text = "Lookup error: " + ex.Message; } finally { resolving = false; } }
+    async Task Resolve() { resolving = true; try { await providers.Resolve(current.Select(c => c.Remote).ToArray(), () => !shuttingDown && lookup.Checked);  } catch (Exception ex) { if (!shuttingDown) status.Text = "Lookup error: " + ex.Message; } finally { resolving = false; } }
     string RuleStatus(AppInfo app, Connection? connection = null) => string.Join(" · ", settings.Rules.Where(r => r.Enabled && app.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase) && (!r.IsConnectionScoped || (connection != null && r.AppliesTo(connection.Flow)))).Select(r => r.Kind switch { RuleKind.Block => "⊘ " + r.Direction, RuleKind.UploadLimit => "UL " + r.Value / 1000 + "k", RuleKind.Priority => "DSCP " + r.Value, _ => "Quota" }));
     bool Scope(Connection c) => scopeFilter.Text switch { "Internet" => ProviderLookup.Public(c.Remote), "Local network" => c.Port != 0 && !ProviderLookup.Public(c.Remote), "Listeners / UDP" => c.Protocol == "UDP" || c.Port == 0, _ => true };
+    void ToggleExpanded(AppInfo app) { if (!expanded.Add(app.Pid)) expanded.Remove(app.Pid); Render(); }
+    void RefreshVisible(bool force = false)
+    {
+        if (shuttingDown || (paused && !force)) return;
+        var now = DateTime.UtcNow;
+        double elapsed = Math.Max(.2, lastVisual == DateTime.MinValue ? 1 : (now - lastVisual).TotalSeconds);
+        foreach (var item in sessionTotals)
+        {
+            var before = displayedPrevious.GetValueOrDefault(item.Key) ?? new(0, 0);
+            displayedRates[item.Key] = (Math.Max(0, item.Value.Down - before.Down) / elapsed, Math.Max(0, item.Value.Up - before.Up) / elapsed); displayedPrevious[item.Key] = item.Value;
+        }
+        foreach (var item in flowTotals)
+        {
+            var before = displayedFlowPrevious.GetValueOrDefault(item.Key) ?? new(0, 0);
+            displayedFlowRates[item.Key] = (Math.Max(0, item.Value.Down - before.Down) / elapsed, Math.Max(0, item.Value.Up - before.Up) / elapsed); displayedFlowPrevious[item.Key] = item.Value;
+        }
+        lastVisual = now; RefreshGraph(); Render(); RenderAuxiliary(); UpdateDetails();
+        captureStatus.Text = capture.Status + $" · lost events: {capture.LostEvents}. Observed transport traffic may undercount when events are dropped.";
+        status.Text = $"{(paused ? "View paused; capture continues" : "Monitoring")}   {activePids.Count} applications   {current.Count(c => c.HasRemoteEndpoint)} remote endpoints   ↓ {Display.Rate(totalDownRate)}   ↑ {Display.Rate(totalUpRate)}   {(settings.DisplaySeconds == 0 ? "Manual display updates" : $"Display: {settings.DisplaySeconds} seconds")}   {(TrafficCapture.IsAdmin ? "Administrator" : "Read-only")}";
+    }
     void Render()
     {
         if (shuttingDown || tabs.SelectedIndex != 0) return;
-        int scroll = activity.FirstDisplayedScrollingRowIndex; rendering = true; activity.SuspendLayout(); activity.Rows.Clear();
+        var desired = new List<GridRow>();
+        void Add(object tag, params object?[] cells)
+        {
+            object?[] values = new object?[cells.Length + 1]; values[0] = AppIcon(tag as AppInfo); Array.Copy(cells, 0, values, 1, cells.Length);
+            desired.Add(new(Key(tag), tag, values));
+        }
+        Add("computer", Environment.MachineName, Display.Rate(totalDownRate), Display.Rate(totalUpRate), "Computer totals", "", "", "", "Online");
+        Add("internet", "    Internet", "", "", "Public IP filter", "", "", "", "");
+        Add("local", "    Local network", "", "", "Private IP filter", "", "", "", "");
+        string query = search.Text.Trim();
+        IEnumerable<AppInfo> apps = known.Values;
+        apps = stateFilter.Text switch { "Online" => apps.Where(a => Active(a.Pid) && !Hidden(a)), "Offline" => apps.Where(a => !Active(a.Pid) && !Hidden(a)), "Hidden" => apps.Where(Hidden), _ => apps.Where(a => !Hidden(a)) };
+        if (sort.Text == "Rate")
+        {
+            if (reorderByRate || rateOrder.Count == 0) { rateOrder.Clear(); int rank = 0; foreach (var app in known.Values.OrderByDescending(a => { var r = displayedRates.GetValueOrDefault(a.Pid); return r.Down + r.Up; }).ThenBy(a => a.Name).ThenBy(a => a.Pid)) rateOrder[app.Pid] = rank++; }
+            foreach (var app in known.Values) if (!rateOrder.ContainsKey(app.Pid)) rateOrder[app.Pid] = rateOrder.Count;
+            apps = apps.OrderBy(a => rateOrder[a.Pid]);
+        }
+        else apps = sort.Text == "PID" ? apps.OrderBy(a => a.Pid) : apps.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ThenBy(a => a.Pid);
+        reorderByRate = false;
+        var byProcess = current.ToLookup(c => c.Pid);
+        var oldByProcess = stateFilter.Text == "Offline" ? history.Values.ToLookup(h => h.App.Pid) : null;
+        foreach (var app in apps)
+        {
+            IEnumerable<Connection> candidates = oldByProcess != null ? oldByProcess[app.Pid].Where(h => h.App.Started == app.Started).Select(h => h.Connection) : byProcess[app.Pid];
+            bool bindings = scopeFilter.Text == "Listeners / UDP";
+            var matches = candidates.Where(c => bindings ? !c.HasRemoteEndpoint : c.HasRemoteEndpoint).Where(Scope).Where(c => { var p = providers.Get(c.Remote, lookup.Checked); return query.Length == 0 || $"{app.Name} {app.Path} {app.Pid} {Endpoint(c)} {c.Local} {p.Isp} {p.Asn} {c.State}".Contains(query, StringComparison.OrdinalIgnoreCase); }).DistinctBy(c => c.Key).ToArray();
+            if (matches.Length == 0 && (scopeFilter.Text != "All" || (query.Length > 0 && !$"{app.Name} {app.Path} {app.Pid}".Contains(query, StringComparison.OrdinalIgnoreCase)))) continue;
+            var rate = displayedRates.GetValueOrDefault(app.Pid); bool online = Active(app.Pid);
+            string Rate(double value) => capture.Running ? Display.Rate(value) : "Unavailable";
+            Add(app, $"{(expanded.Contains(app.Pid) ? "▾" : "▸")}  {app.Name}", Rate(rate.Down), Rate(rate.Up), RuleStatus(app), "", "", "", online ? "Online" : "Offline");
+            if (!expanded.Contains(app.Pid)) continue;
+            foreach (var c in matches.OrderBy(c => c.Remote.ToString()).ThenBy(c => c.Port).ThenBy(c => c.Local))
+            {
+                var provider = providers.Get(c.Remote, lookup.Checked); var flowRate = displayedFlowRates.GetValueOrDefault(c.Flow);
+                string name = c.HasRemoteEndpoint ? ConnectionName(c) : $"{c.Protocol} {(c.Protocol == "UDP" ? "bound" : "listening")} at {c.Local}";
+                Add(c, "      " + name, capture.Running && c.HasRemoteEndpoint ? Display.Rate(flowRate.Down) : "", capture.Running && c.HasRemoteEndpoint ? Display.Rate(flowRate.Up) : "", RuleStatus(app, c), c.HasRemoteEndpoint ? Endpoint(c) : "", c.HasRemoteEndpoint ? provider.Isp : "", c.HasRemoteEndpoint ? provider.Asn : "", stateFilter.Text == "Offline" ? "Closed" : c.State);
+            }
+        }
+        rendering = true;
         try
         {
-            AddRow("computer", Environment.MachineName, Display.Rate(totalDownRate), Display.Rate(totalUpRate), "Computer totals", "", "", "", "Online");
-            AddRow("internet", "    ⚑ Internet", "—", "—", "Filter public IPs", "", "", "", "");
-            AddRow("local", "    ⚑ LocalNetwork", "—", "—", "Filter private IPs", "", "", "", "");
-            string query = search.Text.Trim();
-            IEnumerable<AppInfo> apps = known.Values;
-            apps = stateFilter.Text switch { "Online" => apps.Where(a => Active(a.Pid) && !Hidden(a)), "Offline" => apps.Where(a => !Active(a.Pid) && !Hidden(a)), "Hidden" => apps.Where(Hidden), _ => apps.Where(a => !Hidden(a)) };
-            apps = sort.Text switch { "Name" => apps.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase), "PID" => apps.OrderBy(a => a.Pid), _ => apps.OrderByDescending(a => { var r = rates.GetValueOrDefault(a.Pid); return r.Down + r.Up; }).ThenBy(a => a.Name) };
-            foreach (var app in apps)
+            lastActivityChanges = activityRows.Apply(activity, desired);
+            foreach (DataGridViewRow row in activity.Rows)
             {
-                var candidates = stateFilter.Text == "Offline" ? history.Values.Where(h => h.App.Pid == app.Pid && h.App.Started == app.Started).Select(h => h.Connection) : current.Where(c => c.Pid == app.Pid);
-                var matches = candidates.Where(Scope).Where(c => { var p = providers.Get(c.Remote, lookup.Checked); return query.Length == 0 || $"{app.Name} {app.Path} {app.Pid} {Endpoint(c)} {c.Local} {p.Isp} {p.Asn} {c.State}".Contains(query, StringComparison.OrdinalIgnoreCase); }).ToArray();
-                if (matches.Length == 0 && (scopeFilter.Text != "All" || (query.Length > 0 && !$"{app.Name} {app.Path} {app.Pid}".Contains(query, StringComparison.OrdinalIgnoreCase)))) continue;
-                var rate = rates.GetValueOrDefault(app.Pid); bool active = Active(app.Pid);
-                string Rate(double value) => capture.Running ? Display.Rate(value) : "Admin needed";
-                AddRow(app, $"  {(active ? "●" : "○")} {(expanded.Contains(app.Pid) ? "▾" : "▸")} {app.Name}", Rate(rate.Down), Rate(rate.Up), RuleStatus(app), "", "", "", active ? "Online" : "Offline");
-                if (!expanded.Contains(app.Pid)) continue;
-                foreach (var c in matches.OrderBy(c => c.Remote.ToString()).ThenBy(c => c.Port))
-                {
-                    var p = providers.Get(c.Remote, lookup.Checked); var flowRate = flowRates.GetValueOrDefault(c.Flow);
-                    AddRow(c, "         ➜ " + ConnectionName(c), capture.Running && c.Port > 0 ? Display.Rate(flowRate.Down) : "—", capture.Running && c.Port > 0 ? Display.Rate(flowRate.Up) : "—", RuleStatus(app, c), Endpoint(c), p.Isp, p.Asn, stateFilter.Text == "Offline" ? "Closed" : c.State);
-                }
+                var color = row.Tag is string ? Color.FromArgb(248, 249, 250) : Color.White;
+                if (row.DefaultCellStyle.BackColor != color) row.DefaultCellStyle.BackColor = color;
             }
-            activity.ClearSelection(); foreach (DataGridViewRow row in activity.Rows) if (Key(row.Tag) == selectedKey) { row.Selected = true; break; }
-            if (scroll >= 0 && scroll < activity.Rows.Count) activity.FirstDisplayedScrollingRowIndex = scroll;
         }
-        finally { activity.ResumeLayout(); rendering = false; }
+        finally { rendering = false; }
     }
-    void AddRow(object tag, params object[] cells)
+    Image? AppIcon(AppInfo? app)
     {
-        Image? icon = null;
-        if (tag is AppInfo app && app.Path.Length > 0)
+        if (app == null || app.Path.Length == 0) return null;
+        if (!icons.TryGetValue(app.Path, out var icon))
         {
-            if (!icons.TryGetValue(app.Path, out icon))
-            {
-                try { using var extracted = Icon.ExtractAssociatedIcon(app.Path); icon = extracted?.ToBitmap(); } catch { }
-                icon ??= SystemIcons.Application.ToBitmap(); icons[app.Path] = icon;
-            }
+            try { using var extracted = Icon.ExtractAssociatedIcon(app.Path); icon = extracted?.ToBitmap(); } catch { }
+            icon ??= SystemIcons.Application.ToBitmap(); icons[app.Path] = icon;
         }
-        object[] values = new object[cells.Length + 1]; values[0] = icon!; Array.Copy(cells, 0, values, 1, cells.Length);
-        int i = activity.Rows.Add(values); var row = activity.Rows[i]; row.Tag = tag;
-        if (tag is string) row.DefaultCellStyle.BackColor = Color.FromArgb(248, 248, 248);
-        if (tag is AppInfo) { row.Cells[2].Style.BackColor = Color.FromArgb(245, 245, 245); row.Cells[3].Style.BackColor = Color.FromArgb(245, 245, 245); }
+        return icon;
     }
     string Key(object? tag) => tag switch { AppInfo a => "app:" + a.Pid, Connection c => "conn:" + c.Key, string s => s, _ => "" };
     void Select(object? tag)
@@ -317,7 +374,7 @@ sealed class MonitorWindow : Form
     async Task ResolveName(IPAddress ip)
     {
         await remoteNames.Resolve(ip);
-        if (!shuttingDown && selectedConnection?.Remote.Equals(ip) == true) { UpdateDetails(); Render(); }
+        if (!shuttingDown && selectedConnection?.Remote.Equals(ip) == true) { UpdateDetails(); }
     }
     void UpdateDetails()
     {
@@ -339,16 +396,13 @@ sealed class MonitorWindow : Form
             propertyValues["Location"].Text = provider.Country == "—" ? "Enable ISP / ASN online" : provider.City + ", " + provider.Country;
             bool online = current.Any(c => c.Key == connection.Key); propertyValues["State"].Text = online ? connection.State : "Closed / no longer observed";
         }
-        ruleSummary.SuspendLayout();
-        foreach (Control c in ruleSummary.Controls.Cast<Control>().ToArray()) c.Dispose();
-        ruleSummary.Controls.Clear(); ruleSummary.RowStyles.Clear(); ruleSummary.RowCount = 5;
-        void Cell(string text, int col, int row) { ruleSummary.Controls.Add(new Label { Text = text, AutoSize = true, MaximumSize = new(col == 0 ? 80 : Math.Max(75, (ruleSummary.Width - 95) / 2), 0), Padding = new(4), ForeColor = col == 0 ? Color.FromArgb(25, 45, 65) : Color.SlateGray }, col, row); }
+        void Cell(string text, int col, int row) { var label = summaryLabels[(col, row)]; if (label.Text != text) label.Text = text; }
         Cell("Type", 0, 0); Cell("In", 1, 0); Cell("Out", 2, 0);
         var own = settings.Rules.Where(r => r.Enabled && app != null && r.Path.Equals(app.Path, StringComparison.OrdinalIgnoreCase) && (!r.IsConnectionScoped || (connection != null && r.AppliesTo(connection.Flow)))).OrderByDescending(r => r.IsConnectionScoped).ToArray();
         Cell("Blocker", 0, 1); Cell(own.Any(r => (r.Kind == RuleKind.Block || (r.Kind == RuleKind.Quota && r.QuotaTriggered)) && r.Direction is "Inbound" or "Both") ? "Blocked" : "Not set", 1, 1); Cell(own.Any(r => (r.Kind == RuleKind.Block || (r.Kind == RuleKind.Quota && r.QuotaTriggered)) && r.Direction is "Outbound" or "Both") ? "Blocked" : "Not set", 2, 1);
         Cell("Limit", 0, 2); Cell("Driver required", 1, 2); Cell(own.FirstOrDefault(r => r.Kind == RuleKind.UploadLimit)?.Description ?? "Not set", 2, 2);
         Cell("Priority", 0, 3); Cell("—", 1, 3); Cell(own.FirstOrDefault(r => r.Kind == RuleKind.Priority)?.Description ?? "Not set", 2, 3);
-        Cell("Quota", 0, 4); Cell("Session total", 1, 4); Cell(own.FirstOrDefault(r => r.Kind == RuleKind.Quota) is Rule q ? Display.Bytes(q.Value) : "Not set", 2, 4); ruleSummary.ResumeLayout();
+        Cell("Quota", 0, 4); Cell("Session total", 1, 4); Cell(own.FirstOrDefault(r => r.Kind == RuleKind.Quota) is Rule q ? Display.Bytes(q.Value) : "Not set", 2, 4);
         if (connection != null)
         {
             var total = flowTotals.GetValueOrDefault(connection.Flow) ?? new(0, 0);
@@ -362,26 +416,48 @@ sealed class MonitorWindow : Form
         if (tabs.SelectedTab == null) return;
         string name = tabs.SelectedTab.Text; if (name is not ("Rule List" or "Blocker" or "Priorities" or "Quotas")) return; ruleTab = name;
         var panel = tabs.SelectedTab!.Controls[0] as Panel; if (panel == null) return;
-        if (!panel.Controls.Contains(rules)) { rules.Parent?.Controls.Remove(rules); panel.Controls.Clear(); panel.Controls.Add(rules); var bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new(4) }; bar.Controls.Add(Button("Add rule…", async () => await AddRule())); bar.Controls.Add(Button("Enable / disable", async () => await ToggleRule())); bar.Controls.Add(Button("Delete selected", async () => await DeleteRule())); bar.Controls.Add(Button("Reset quota / unblock", async () => await ResetQuota())); panel.Controls.Add(bar); }
+        if (!panel.Controls.Contains(rules))
+        {
+            rules.Parent?.Controls.Remove(rules); panel.Controls.Add(rules);
+            var bar = panel.Controls.OfType<FlowLayoutPanel>().FirstOrDefault();
+            if (bar == null)
+            {
+                bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 46, Padding = new(4) };
+                bar.Controls.Add(Button("Add rule…", async () => await AddRule())); bar.Controls.Add(Button("Enable / disable", async () => await ToggleRule())); bar.Controls.Add(Button("Delete selected", async () => await DeleteRule())); bar.Controls.Add(Button("Reset quota / unblock", async () => await ResetQuota())); panel.Controls.Add(bar);
+            }
+            bar.BringToFront();
+        }
     }
     void RenderAuxiliary()
     {
-        if (shuttingDown || tabs.SelectedIndex == 0) return; rendering = true;
+        if (shuttingDown || tabs.SelectedIndex == 0) return;
+        var desired = new List<GridRow>(); rendering = true;
         try
         {
             if (tabs.SelectedIndex is 1 or 5 or 6 or 7)
             {
-                string? id = rules.SelectedRows.Count > 0 ? (rules.SelectedRows[0].Tag as Rule)?.Id : null; rules.Rows.Clear();
                 var show = settings.Rules.Where(r => ruleTab switch { "Blocker" => r.Kind == RuleKind.Block, "Priorities" => r.Kind == RuleKind.Priority, "Quotas" => r.Kind == RuleKind.Quota, _ => true });
-                foreach (var r in show) { if (search.Text.Length > 0 && !$"{r.Application} {r.Path} {r.Description}".Contains(search.Text, StringComparison.OrdinalIgnoreCase)) continue; int i = rules.Rows.Add(r.Application, r.Kind, r.Description, r.Enabled ? "Yes" : "No", r.IsConnectionScoped ? $"{r.Protocol} {r.RemoteAddress}:{r.RemotePort} (local {r.LocalPort})" : "Whole application", r.Path); rules.Rows[i].Tag = r; }
-                rules.ClearSelection(); foreach (DataGridViewRow r in rules.Rows) if ((r.Tag as Rule)?.Id == id) r.Selected = true;
+                foreach (var r in show) { if (search.Text.Length > 0 && !$"{r.Application} {r.Path} {r.Description}".Contains(search.Text, StringComparison.OrdinalIgnoreCase)) continue; desired.Add(new(r.Id, r, r.Application, r.Kind.ToString(), r.Description, r.Enabled ? "Yes" : "No", r.IsConnectionScoped ? $"{r.Protocol} {r.RemoteAddress}:{r.RemotePort} (local {r.LocalPort})" : "Whole application", r.Path)); }
+                ruleRows.Apply(rules, desired);
             }
-            if (tabs.SelectedIndex == 2) { filters.Rows.Clear(); filters.Rows.Add("All", "All TCP connections and UDP local bindings", current.Count); filters.Rows.Add("Internet", "Public remote IP addresses", current.Count(c => ProviderLookup.Public(c.Remote))); filters.Rows.Add("Local network", "Private / reserved remote endpoints", current.Count(c => c.Port != 0 && !ProviderLookup.Public(c.Remote))); filters.Rows.Add("Listeners / UDP", "TCP listeners and UDP local bindings", current.Count(c => c.Port == 0)); }
+            if (tabs.SelectedIndex == 2)
+            {
+                desired.Add(new("all", null, "All", "Remote IP connections; empty applications stay expandable", current.Count(c => c.HasRemoteEndpoint)));
+                desired.Add(new("internet", null, "Internet", "Public remote IP addresses", current.Count(c => c.HasRemoteEndpoint && ProviderLookup.Public(c.Remote))));
+                desired.Add(new("local", null, "Local network", "Private / reserved remote endpoints", current.Count(c => c.HasRemoteEndpoint && !ProviderLookup.Public(c.Remote))));
+                desired.Add(new("bindings", null, "Listeners / UDP", "Local bindings shown only in this explicit view", current.Count(c => !c.HasRemoteEndpoint)));
+                filterRows.Apply(filters, desired);
+            }
             if (tabs.SelectedIndex == 3)
             {
-                applications.Rows.Clear(); foreach (var a in known.Values.OrderBy(a => a.Name)) { if (search.Text.Length > 0 && !$"{a.Name} {a.Path} {a.Pid}".Contains(search.Text, StringComparison.OrdinalIgnoreCase)) continue; var t = sessionTotals.GetValueOrDefault(a.Pid) ?? new(0, 0); int i = applications.Rows.Add(a.Name, a.Pid, Active(a.Pid) ? "Online" : "Offline", capture.Running ? Display.Bytes(t.Down) : "Not capturing", capture.Running ? Display.Bytes(t.Up) : "Not capturing", a.Path); applications.Rows[i].Tag = a; }
+                foreach (var a in known.Values.OrderBy(a => a.Name).ThenBy(a => a.Pid)) { if (search.Text.Length > 0 && !$"{a.Name} {a.Path} {a.Pid}".Contains(search.Text, StringComparison.OrdinalIgnoreCase)) continue; var t = sessionTotals.GetValueOrDefault(a.Pid) ?? new(0, 0); desired.Add(new("app:" + a.Pid, a, a.Name, a.Pid, Active(a.Pid) ? "Online" : "Offline", capture.Running ? Display.Bytes(t.Down) : "Not capturing", capture.Running ? Display.Bytes(t.Up) : "Not capturing", a.Path)); }
+                applicationRows.Apply(applications, desired);
             }
-            if (tabs.SelectedIndex == 4) { networks.Rows.Clear(); foreach (var n in NetworkInterface.GetAllNetworkInterfaces()) { var s = n.GetIPStatistics(); networks.Rows.Add(n.Name, n.OperationalStatus, string.Join(", ", n.GetIPProperties().UnicastAddresses.Select(a => a.Address)), Display.Bytes(s.BytesReceived), Display.Bytes(s.BytesSent)); } }
+            if (tabs.SelectedIndex == 4)
+            {
+                foreach (var n in NetworkInterface.GetAllNetworkInterfaces()) { var stats = n.GetIPStatistics(); desired.Add(new(n.Id, null, n.Name, n.OperationalStatus.ToString(), string.Join(", ", n.GetIPProperties().UnicastAddresses.Select(a => a.Address)), Display.Bytes(stats.BytesReceived), Display.Bytes(stats.BytesSent))); }
+                networkRows.Apply(networks, desired);
+            }
         }
         finally { rendering = false; }
     }
@@ -505,13 +581,48 @@ sealed class MonitorWindow : Form
         await Task.Run(() => { foreach (var c in target) { var local = IPEndPoint.Parse(c.Local); uint Port(int p) => unchecked((ushort)IPAddress.HostToNetworkOrder((short)p)); var row = new TcpRow { State = 12, LocalAddress = BitConverter.ToUInt32(local.Address.GetAddressBytes()), LocalPort = Port(local.Port), RemoteAddress = BitConverter.ToUInt32(c.Remote.GetAddressBytes()), RemotePort = Port(c.Port) }; uint error = SetTcpEntry(ref row); if (error != 0) { failed++; errors.Add(error); } } });
         MessageBox.Show(this, $"Closed {target.Length - failed} connections; {failed} failed or already closed." + (errors.Count == 0 ? "" : "\nWindows status: " + string.Join(", ", errors)), "Close connections");
     }
+    void VerifyStableRows(List<string> checks)
+    {
+        using var sample = Grid(); Columns(sample, ("Name", 160), ("Rate", 90));
+        var updater = new GridRows();
+        var initial = new[] { new GridRow("a", null, "Alpha", "1 KB/s"), new GridRow("b", null, "Beta", "2 KB/s") };
+        updater.Apply(sample, initial); var alpha = sample.Rows[0]; var beta = sample.Rows[1];
+        sample.CurrentCell = beta.Cells[0]; beta.Selected = true;
+        var watch = Stopwatch.StartNew();
+        for (int i = 0; i < 50; i++) if (updater.Apply(sample, initial) != new GridChanges(0, 0, 0, 0)) throw new Exception("Unchanged samples modified grid rows.");
+        watch.Stop();
+        var changed = updater.Apply(sample, new[] { initial[0], new GridRow("b", null, "Beta", "3 KB/s") });
+        if (changed != new GridChanges(0, 0, 0, 1) || !ReferenceEquals(sample.Rows[0], alpha) || !ReferenceEquals(sample.Rows[1], beta) || sample.CurrentCell != beta.Cells[0] || !beta.Selected) throw new Exception("Rate updates recreated rows or disturbed selection.");
+        updater.Apply(sample, new[] { new GridRow("new", null, "New", ""), initial[0], new GridRow("b", null, "Beta", "3 KB/s") });
+        if (!ReferenceEquals(sample.Rows[2], beta) || !beta.Selected) throw new Exception("Inserting a connection lost selection.");
+        updater.Apply(sample, new[] { new GridRow("b", null, "Beta", "3 KB/s"), initial[0] });
+        if (!ReferenceEquals(sample.Rows[0], beta) || sample.CurrentCell != beta.Cells[0]) throw new Exception("Sorting recreated a selected row.");
+        checks.Add($"Stable-row regression: 50 unchanged samples, zero row/cell changes in {watch.ElapsedMilliseconds} ms; changed rate updates one cell only.");
+        int pid = int.MaxValue; var empty = new AppInfo(pid, "Empty application test", "", DateTime.Now); var saved = current;
+        known[pid] = empty; expanded.Add(pid); activePids.Add(pid);
+        current = current.Concat(new[] { new Connection(pid, "TCP", "0.0.0.0:12345", IPAddress.Any, 0, "Listen"), new Connection(pid, "UDP", "[::]:5353", IPAddress.IPv6Any, 0, "Bound") }).ToList();
+        try
+        {
+            Render();
+            var parent = activity.Rows.Cast<DataGridViewRow>().Single(r => r.Tag is AppInfo a && a.Pid == pid);
+            if (activity.Rows.Cast<DataGridViewRow>().Any(r => r.Tag is Connection c && c.Pid == pid)) throw new Exception("Empty application shows placeholder/listener child rows.");
+            if (!parent.Cells[1].Value!.ToString()!.StartsWith("▾") || parent.Cells[1].Value!.ToString()!.Contains('●')) throw new Exception("Empty application is not expandable or still contains status dots.");
+            Render(); if (!ReferenceEquals(parent, activity.Rows.Cast<DataGridViewRow>().Single(r => r.Tag is AppInfo a && a.Pid == pid))) throw new Exception("An empty application's row was recreated.");
+            var remote = new Connection(pid, "TCP", "127.0.0.1:12345", IPAddress.Parse("203.0.113.10"), 443, "Established"); current.Add(remote); Render();
+            if (activity.Rows.Cast<DataGridViewRow>().Count(r => r.Tag is Connection c && c.Pid == pid) != 1) throw new Exception("Only actual remote endpoints should appear as children.");
+            current.Remove(remote); Render();
+            if (activity.Rows.Cast<DataGridViewRow>().Any(r => r.Tag is Connection c && c.Pid == pid)) throw new Exception("Last disconnected IP left a placeholder row.");
+            checks.Add("Empty-app regression: expanded listener-only/UDP-only app has zero children; one real IP adds one child; removing it leaves zero.");
+        }
+        finally { current = saved; known.Remove(pid); expanded.Remove(pid); activePids.Remove(pid); Render(); }
+    }
     public string SmokeTest()
     {
         var checks = new List<string>();
         if (TrafficCapture.IsAdmin && !capture.Running) throw new Exception(capture.Status);
         if (tabs.TabPages.Count != 8 || activity.Columns.Count != 9) throw new Exception("Activity layout does not have the expected tabs and columns.");
         foreach (var name in tabNames) { SelectTab(name); RenderAuxiliary(); checks.Add("Tab OK: " + name); }
-        SelectTab("Activity"); Render();
+        SelectTab("Activity"); scopeFilter.SelectedItem = "All"; stateFilter.SelectedItem = "All"; search.Text = ""; Render(); VerifyStableRows(checks);
         if (activity.Rows.Count < 3) throw new Exception("Activity tree did not populate.");
         foreach (var kind in Enum.GetValues<RuleKind>()) { using var dialog = new RuleDialog(Environment.ProcessPath!, kind); dialog.CreateControl(); dialog.PerformLayout(); checks.Add("Rule dialog OK: " + kind); }
         var connection = current.FirstOrDefault(c => c.Port > 0) ?? new Connection(Environment.ProcessId, "TCP", "127.0.0.1:50000", IPAddress.Parse("198.51.100.10"), 443, "Closed");

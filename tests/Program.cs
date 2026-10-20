@@ -50,4 +50,15 @@ Check(timeline.Get("connection-b", timestamp).Length == 0, "Connection charts mu
 timeline.Record("connection-b", timestamp.AddSeconds(-2), 30, 40); timeline.Record("connection-c", timestamp, 50, 60);
 Check(timeline.Get("connection-a", timestamp).Length == 0 && timeline.Get("connection-c", timestamp).Length > 0, "Timeline must enforce its memory bound");
 Check(timeline.Get("connection-c", timestamp.AddMinutes(11)).Length == 0, "Traffic older than the chart window must expire");
+var listener = new Connection(5, "TCP", "0.0.0.0:80", IPAddress.Any, 0, "Listen");
+Check(!listener.HasRemoteEndpoint, "TCP listener must not create an empty remote-IP row");
+Check(!(listener with { Protocol = "UDP", Remote = IPAddress.IPv6Any }).HasRemoteEndpoint, "UDP binding must not create an empty remote-IP row");
+Check(!(listener with { Remote = IPAddress.IPv6Any, Port = 443 }).HasRemoteEndpoint, "Unspecified IPv6 must not appear as a remote IP");
+Check(!(listener with { Remote = IPAddress.Parse("::ffff:0.0.0.0"), Port = 443 }).HasRemoteEndpoint, "Mapped unspecified IPv4 must not appear as a remote IP");
+Check((listener with { Remote = IPAddress.Parse("127.0.0.1"), Port = 443 }).HasRemoteEndpoint, "Real local-network connections must remain visible");
+Check((listener with { Remote = IPAddress.Parse("1.1.1.1"), Port = 443 }).HasRemoteEndpoint, "Real public connections must remain visible");
+Check(!DisplaySchedule.Due(timestamp, timestamp.AddSeconds(1), 5, false), "Visible display must not refresh every second");
+Check(DisplaySchedule.Due(timestamp, timestamp.AddSeconds(5), 5, false), "Default display interval must update at five seconds");
+Check(!DisplaySchedule.Due(timestamp, timestamp.AddHours(1), 0, false), "Manual mode must not refresh automatically");
+Check(!DisplaySchedule.Due(timestamp, timestamp.AddSeconds(10), 5, true), "Paused display must not refresh automatically");
 Console.WriteLine($"Passed {count} policy composition, escaping, and IP privacy checks.");

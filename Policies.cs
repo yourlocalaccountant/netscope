@@ -10,6 +10,7 @@ sealed class Preferences
     public List<string> HiddenPaths { get; set; } = new();
     public string Filter { get; set; } = "All";
     public bool ResolveProviders { get; set; }
+    public int DisplaySeconds { get; set; } = 5;
     public static string DirectoryPath => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetScope");
     static string FilePath => System.IO.Path.Combine(DirectoryPath, "settings.json");
     public static Preferences Load()
@@ -55,18 +56,18 @@ static class Policies
 }
 sealed class RuleDialog : Form
 {
-    readonly ComboBox kind = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 310 };
-    readonly ComboBox direction = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 310 };
-    readonly TextBox path = new() { Width = 310 };
-    readonly NumericUpDown value = new() { Width = 310, Minimum = 1, Maximum = 1000000000, Value = 1000 };
+    readonly ComboBox kind = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 480 };
+    readonly ComboBox direction = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 480 };
+    readonly TextBox path = new() { Width = 480 };
+    readonly NumericUpDown value = new() { Width = 480, Minimum = 1, Maximum = 1000000000, Value = 1000 };
     readonly Label label = new() { AutoSize = true, Text = "Upload limit (Kbps)" };
     readonly CheckBox connectionScope = new() { Text = "Only this connection (exact IPs + ports)", Checked = true, AutoSize = true };
     readonly CheckBox autoBlock = new() { Text = "Block automatically at quota threshold", Checked = true, AutoSize = true };
-    readonly Label note = new() { Width = 410, Height = 84 };
+    readonly Label note = new() { Width = 500, Height = 140 };
     public Rule? Result { get; private set; }
     public RuleDialog(string selectedPath, RuleKind initial = RuleKind.Block, Connection? connection = null)
     {
-        Text = "Add application rule"; ClientSize = new(450, 500); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; StartPosition = FormStartPosition.CenterParent; Font = new("Segoe UI", 9);
+        Text = "Add application rule"; ClientSize = new(560, 620); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false; StartPosition = FormStartPosition.CenterParent; Font = new("Segoe UI", 10.5f);
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, Padding = new(18), WrapContents = false };
         path.Text = selectedPath; connectionScope.Visible = connection != null && connection.Port > 0; kind.Items.AddRange(new object[] { "Blocker", "Upload limit", "Priority (DSCP)", "Session quota" }); direction.Items.AddRange(new object[] { "Both", "Inbound", "Outbound" }); direction.SelectedIndex = 0;
         var browse = new Button { Text = "Browse executable…", AutoSize = true }; browse.Click += (_, _) => { using var d = new OpenFileDialog { Filter = "Executable|*.exe" }; if (d.ShowDialog(this) == DialogResult.OK) path.Text = d.FileName; };
