@@ -34,7 +34,7 @@ sealed class MonitorWindow : Form
     readonly ProviderLookup providers = new();
     readonly RemoteNames remoteNames = new();
     readonly Label selectedEndpoint = new() { AutoSize = true, MaximumSize = new(380, 0), ForeColor = Color.FromArgb(25, 50, 73) };
-    readonly Label propertiesHeading = Section("⌃  Connection properties");
+    readonly FlowLayoutPanel propertySection = new() { FlowDirection = FlowDirection.TopDown, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new(0) };
     readonly TableLayoutPanel properties = new() { AutoSize = true, Width = 380, ColumnCount = 2, CellBorderStyle = TableLayoutPanelCellBorderStyle.None, BorderStyle = BorderStyle.FixedSingle, Padding = new(4) };
     readonly Dictionary<string, Label> propertyValues = new();
     readonly TrafficCapture capture = new();
@@ -117,14 +117,14 @@ sealed class MonitorWindow : Form
         right.Controls.Add(Bar("Info View"), 0, 0);
         var info = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new(12) };
         info.Controls.Add(selectedName); info.Controls.Add(selectedEndpoint);
-        properties.ColumnStyles.Add(new(SizeType.Absolute, 98)); properties.ColumnStyles.Add(new(SizeType.Percent, 100));
-        foreach (string name in new[] { "Protocol", "Local address", "Local port", "Remote address", "Remote port", "Remote name", "Reverse DNS", "ISP / Provider", "ASN", "Location", "State" })
+        properties.ColumnStyles.Add(new(SizeType.Absolute, 102)); properties.ColumnStyles.Add(new(SizeType.Percent, 100));
+        foreach (string name in new[] { "Protocol", "Local address", "Remote address", "Remote name", "Reverse DNS", "ISP / ASN", "Location", "State" })
         {
             int row = propertyValues.Count; properties.RowCount = row + 1;
             properties.Controls.Add(new Label { Text = name + ":", AutoSize = true, ForeColor = Color.Gray, Padding = new(1, 3, 0, 3) }, 0, row);
             var label = new Label { Text = "—", AutoSize = true, MaximumSize = new(255, 0), Padding = new(0, 3, 0, 3), ForeColor = Color.FromArgb(25, 50, 73) }; propertyValues[name] = label; properties.Controls.Add(label, 1, row);
         }
-        info.Controls.Add(propertiesHeading); info.Controls.Add(properties); info.Controls.Add(Section("⌃  Rules"));
+        propertySection.Controls.Add(Section("⌃  Connection properties")); propertySection.Controls.Add(properties); info.Controls.Add(propertySection); info.Controls.Add(Section("⌃  Rules"));
         ruleSummary.ColumnStyles.Add(new(SizeType.Absolute, 85)); ruleSummary.ColumnStyles.Add(new(SizeType.Percent, 50)); ruleSummary.ColumnStyles.Add(new(SizeType.Percent, 50));
         info.Controls.Add(ruleSummary); var add = new LinkLabel { Text = "Add rule", AutoSize = true }; add.LinkClicked += async (_, _) => await AddRule(); info.Controls.Add(add);
         info.Controls.Add(Section("⌃  Tools")); var links = new FlowLayoutPanel { Width = 375, Height = 62 };
@@ -133,6 +133,17 @@ sealed class MonitorWindow : Form
         info.Controls.Add(detail); info.Controls.Add(Section("Traffic capture")); info.Controls.Add(captureStatus); info.Controls.Add(Button("Restart as administrator", Elevate));
         right.Controls.Add(info, 0, 1); right.Controls.Add(Bar("Traffic chart · selected item"), 0, 2); right.Controls.Add(graph, 0, 3);
         chart.CheckedChanged += (_, _) => { right.RowStyles[3].Height = chart.Checked ? 215 : 0; graph.Visible = chart.Checked; };
+        void FitInfo()
+        {
+            int width = Math.Max(280, info.ClientSize.Width - info.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 8);
+            properties.Width = width; properties.MinimumSize = new(width, 0); properties.MaximumSize = new(width, 0);
+            ruleSummary.Width = width; ruleSummary.MinimumSize = new(width, 0); ruleSummary.MaximumSize = new(width, 0);
+            selectedName.MaximumSize = selectedEndpoint.MaximumSize = detail.MaximumSize = captureStatus.MaximumSize = new(width, 0);
+            foreach (var value in propertyValues.Values) value.MaximumSize = new(Math.Max(140, width - 120), 0);
+            foreach (Control control in ruleSummary.Controls) if (ruleSummary.GetColumn(control) > 0) control.MaximumSize = new(Math.Max(75, (width - 95) / 2), 0);
+            links.Width = width; links.Height = 80;
+        }
+        info.SizeChanged += (_, _) => FitInfo();
         root.Controls.Add(status, 0, 2); search.TextChanged += (_, _) => { Render(); RenderAuxiliary(); }; stateFilter.SelectedIndexChanged += (_, _) => Render(); sort.SelectedIndexChanged += (_, _) => Render(); scopeFilter.SelectedIndexChanged += (_, _) => { settings.Filter = scopeFilter.Text; Save(); Render(); };
         Shown += async (_, _) => { split.SplitterDistance = Math.Max(650, split.Width - 430); split.Panel1MinSize = 620; split.Panel2MinSize = 350; capture.Start(); captureStatus.Text = capture.Status; await Tick(); timer.Start(); };
         timer.Tick += async (_, _) => await Tick();
@@ -316,22 +327,22 @@ sealed class MonitorWindow : Form
         var app = SelectedApp; var connection = selectedConnection;
         selectedName.Text = connection != null ? capture.Direction(connection.Flow) : app?.Name ?? Environment.MachineName;
         selectedEndpoint.Text = connection != null ? ConnectionName(connection) : "";
-        propertiesHeading.Visible = properties.Visible = connection != null;
+        propertySection.Visible = connection != null;
         if (connection != null)
         {
             var flow = connection.Flow; var provider = providers.Get(connection.Remote, lookup.Checked); var name = remoteNames.Get(connection.Remote);
             propertyValues["Protocol"].Text = connection.Protocol;
-            propertyValues["Local address"].Text = flow.LocalAddress; propertyValues["Local port"].Text = flow.LocalPort.ToString();
-            propertyValues["Remote address"].Text = flow.RemoteAddress; propertyValues["Remote port"].Text = flow.RemotePort == 0 ? "—" : flow.RemotePort.ToString();
+            propertyValues["Local address"].Text = flow.LocalAddress + "  Port: " + flow.LocalPort;
+            propertyValues["Remote address"].Text = flow.RemoteAddress + "  Port: " + (flow.RemotePort == 0 ? "—" : flow.RemotePort.ToString());
             propertyValues["Remote name"].Text = name.Status == "Resolved (PTR)" ? name.Hostname : "Unresolved";
-            propertyValues["Reverse DNS"].Text = name.Status; propertyValues["ISP / Provider"].Text = provider.Isp; propertyValues["ASN"].Text = provider.Asn;
+            propertyValues["Reverse DNS"].Text = name.Status; propertyValues["ISP / ASN"].Text = provider.Isp + " · " + provider.Asn;
             propertyValues["Location"].Text = provider.Country == "—" ? "Enable ISP / ASN online" : provider.City + ", " + provider.Country;
             bool online = current.Any(c => c.Key == connection.Key); propertyValues["State"].Text = online ? connection.State : "Closed / no longer observed";
         }
         ruleSummary.SuspendLayout();
         foreach (Control c in ruleSummary.Controls.Cast<Control>().ToArray()) c.Dispose();
         ruleSummary.Controls.Clear(); ruleSummary.RowStyles.Clear(); ruleSummary.RowCount = 5;
-        void Cell(string text, int col, int row) { ruleSummary.Controls.Add(new Label { Text = text, AutoSize = true, MaximumSize = new(145, 0), Padding = new(4), ForeColor = col == 0 ? Color.FromArgb(25, 45, 65) : Color.SlateGray }, col, row); }
+        void Cell(string text, int col, int row) { ruleSummary.Controls.Add(new Label { Text = text, AutoSize = true, MaximumSize = new(col == 0 ? 80 : Math.Max(75, (ruleSummary.Width - 95) / 2), 0), Padding = new(4), ForeColor = col == 0 ? Color.FromArgb(25, 45, 65) : Color.SlateGray }, col, row); }
         Cell("Type", 0, 0); Cell("In", 1, 0); Cell("Out", 2, 0);
         var own = settings.Rules.Where(r => r.Enabled && app != null && r.Path.Equals(app.Path, StringComparison.OrdinalIgnoreCase) && (!r.IsConnectionScoped || (connection != null && r.AppliesTo(connection.Flow)))).OrderByDescending(r => r.IsConnectionScoped).ToArray();
         Cell("Blocker", 0, 1); Cell(own.Any(r => (r.Kind == RuleKind.Block || (r.Kind == RuleKind.Quota && r.QuotaTriggered)) && r.Direction is "Inbound" or "Both") ? "Blocked" : "Not set", 1, 1); Cell(own.Any(r => (r.Kind == RuleKind.Block || (r.Kind == RuleKind.Quota && r.QuotaTriggered)) && r.Direction is "Outbound" or "Both") ? "Blocked" : "Not set", 2, 1);
@@ -504,10 +515,10 @@ sealed class MonitorWindow : Form
         if (activity.Rows.Count < 3) throw new Exception("Activity tree did not populate.");
         foreach (var kind in Enum.GetValues<RuleKind>()) { using var dialog = new RuleDialog(Environment.ProcessPath!, kind); dialog.CreateControl(); dialog.PerformLayout(); checks.Add("Rule dialog OK: " + kind); }
         var connection = current.FirstOrDefault(c => c.Port > 0) ?? new Connection(Environment.ProcessId, "TCP", "127.0.0.1:50000", IPAddress.Parse("198.51.100.10"), 443, "Closed");
-        Select(connection); UpdateDetails();
-        if (!properties.Visible || propertyValues["Remote address"].Text != connection.Flow.RemoteAddress || propertyValues["Remote port"].Text != connection.Port.ToString()) throw new Exception("Selected-IP properties do not match the selected connection.");
+        expanded.Add(connection.Pid); Select(connection); Render(); UpdateDetails();
+        if (!properties.Visible || !propertyValues["Remote address"].Text.Contains(connection.Flow.RemoteAddress) || !propertyValues["Remote address"].Text.Contains(connection.Port.ToString())) throw new Exception("Selected-IP properties do not match the selected connection.");
         checks.Add("Selected-IP properties and rule scope OK");
-        checks.Add($"Endpoints: {current.Count}"); checks.Add(capture.Status); checks.Add($"Activity view: {activity.Width} x {activity.Height}");
+        checks.Add($"Endpoints: {current.Count}"); checks.Add(capture.Status); checks.Add($"Observed traffic flows: {flowTotals.Count}"); checks.Add($"Activity view: {activity.Width} x {activity.Height}");
         if (activity.Width < 600 || activity.Height < 100 || graph.Width < 300) throw new Exception("Main pane layout is too small.");
         checks.Add("Windows native connection enumeration and WinForms smoke test passed.");
         return string.Join(Environment.NewLine, checks);
