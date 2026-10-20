@@ -25,11 +25,11 @@ sealed class GridRows
                 var item = desired[index];
                 if (!rows.TryGetValue(item.Key, out var row))
                 {
-                    row = new DataGridViewRow(); row.CreateCells(grid); grid.Rows.Insert(index, row); rows[item.Key] = row; inserted++;
+                    row = new DataGridViewRow(); row.CreateCells(grid); grid.Rows.Insert(index, row); row = grid.Rows[index]; rows[item.Key] = row; inserted++;
                 }
                 else if (row.Index != index)
                 {
-                    grid.Rows.Remove(row); grid.Rows.Insert(index, row); moved++;
+                    grid.Rows.Remove(row); grid.Rows.Insert(index, row); row = grid.Rows[index]; rows[item.Key] = row; moved++;
                 }
                 row.Tag = item.Tag;
                 for (int column = 0; column < item.Values.Length; column++)
