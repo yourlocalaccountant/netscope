@@ -34,7 +34,7 @@ static class Program
         }
         catch (Exception ex)
         {
-            if (args.Contains("--smoke-test")) { Console.Error.WriteLine(ex); Environment.ExitCode = 1; }
+            if (args.Contains("--smoke-test")) { string output = Environment.GetEnvironmentVariable("NETSCOPE_SMOKE_OUTPUT") ?? Path.Combine(AppContext.BaseDirectory, "smoke"); Directory.CreateDirectory(output); File.WriteAllText(Path.Combine(output, "error.txt"), ex.ToString()); Environment.ExitCode = 1; }
             else MessageBox.Show(ex.Message, "NetScope could not start");
         }
     }
