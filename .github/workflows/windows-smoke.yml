@@ -1,0 +1,37 @@
+name: Windows build and desktop smoke test
+on:
+  push:
+    paths:
+      - '**.cs'
+      - '**.csproj'
+      - 'app.manifest'
+      - '.github/workflows/windows-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Check policy composition and IP privacy
+        run: dotnet run --project tests/Checks.csproj
+      - name: Publish Windows app
+        run: dotnet publish NetScope.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist
+      - name: Exercise WinForms layout and native connection tables
+        shell: pwsh
+        run: |
+          $env:NETSCOPE_SMOKE_OUTPUT = "$env:GITHUB_WORKSPACE\smoke"
+          $p = Start-Process -FilePath .\dist\NetScope.exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $p.WaitForExit(45000)) { $p.Kill(); throw 'Desktop smoke test timed out' }
+          if ($p.ExitCode -ne 0) { if (Test-Path smoke\error.txt) { Get-Content smoke\error.txt }; throw "Desktop smoke test exited $($p.ExitCode)" }
+          if (-not (Test-Path smoke\report.txt)) { throw 'No smoke test report produced' }
+          Get-Content smoke\report.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-smoke-results
+          path: smoke/
