@@ -38,6 +38,8 @@ sealed class MonitorWindow : Form
     readonly TableLayoutPanel properties = new() { AutoSize = true, Width = 380, ColumnCount = 2, CellBorderStyle = TableLayoutPanelCellBorderStyle.None, BorderStyle = BorderStyle.FixedSingle, Padding = new(4) };
     readonly Dictionary<string, Label> propertyValues = new();
     readonly TrafficCapture capture = new();
+    readonly TrafficTimeline timeline = new();
+    long computerReceived, computerSent;
     readonly Preferences settings;
     readonly HashSet<int> expanded = new();
     readonly Dictionary<int, AppInfo> known = new();
@@ -199,6 +201,7 @@ sealed class MonitorWindow : Form
             if (selectedConnection != null) selectedConnection = current.FirstOrDefault(c => c.Key == selectedConnection.Key) ?? selectedConnection;
             long down = 0, up = 0;
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)) { var s = nic.GetIPStatistics(); down += s.BytesReceived; up += s.BytesSent; }
+            if (previousDown != 0) computerReceived += Math.Max(0, down - previousDown); if (previousUp != 0) computerSent += Math.Max(0, up - previousUp);
             totalDownRate = previousDown == 0 ? 0 : Math.Max(0, (down - previousDown) / seconds); totalUpRate = previousUp == 0 ? 0 : Math.Max(0, (up - previousUp) / seconds); previousDown = down; previousUp = up; previousTime = now;
             foreach (var h in history.Values) h.Online = false;
             foreach (var c in current)
@@ -209,10 +212,12 @@ sealed class MonitorWindow : Form
             }
             if (history.Count > 5000) foreach (var key in history.Where(x => !x.Value.Online).OrderBy(x => x.Value.Last).Take(history.Count - 5000).Select(x => x.Key).ToArray()) history.Remove(key);
             await CheckQuotas();
+            timeline.Record("computer", now, totalDownRate, totalUpRate);
+            foreach (var item in rates) timeline.Record("app:" + item.Key, now, item.Value.Down, item.Value.Up);
+            foreach (var item in flowRates) timeline.Record("flow:" + item.Key, now, item.Value.Down, item.Value.Up);
             if (!paused)
             {
-                var rate = selectedConnection != null ? flowRates.GetValueOrDefault(selectedConnection.Flow) : selectedPid.HasValue ? rates.GetValueOrDefault(selectedPid.Value) : (totalDownRate, totalUpRate);
-                graph.Caption = selectedConnection != null ? ConnectionName(selectedConnection) : selectedPid.HasValue ? SelectedApp?.Name ?? "Application" : "Computer · all interfaces"; graph.Add(rate.Item1, rate.Item2);
+                RefreshGraph();
                 Render(); RenderAuxiliary(); UpdateDetails();
             }
             captureStatus.Text = capture.Status + $" · lost events: {capture.LostEvents}. ETW reports observed transport traffic; dropped events or protected apps may undercount.";
@@ -280,8 +285,18 @@ sealed class MonitorWindow : Form
     {
         selectedKey = Key(tag); selectedConnection = tag as Connection; selectedPid = tag switch { AppInfo a => a.Pid, Connection c => c.Pid, _ => null };
         if (tag is string s && s is "internet" or "local") { scopeFilter.SelectedItem = s == "internet" ? "Internet" : "Local network"; selectedKey = "computer"; }
-        graph.Clear(); UpdateDetails();
+        RefreshGraph(); UpdateDetails();
         if (selectedConnection != null) _ = ResolveName(selectedConnection.Remote);
+    }
+    void RefreshGraph()
+    {
+        var rate = selectedConnection != null ? flowRates.GetValueOrDefault(selectedConnection.Flow) : selectedPid.HasValue ? rates.GetValueOrDefault(selectedPid.Value) : (totalDownRate, totalUpRate);
+        string key = selectedConnection != null ? "flow:" + selectedConnection.Flow : selectedPid.HasValue ? "app:" + selectedPid.Value : "computer";
+        var total = selectedConnection != null ? flowTotals.GetValueOrDefault(selectedConnection.Flow) : selectedPid.HasValue ? sessionTotals.GetValueOrDefault(selectedPid.Value) : new TrafficTotal(computerReceived, computerSent);
+        graph.Caption = selectedConnection != null ? ConnectionName(selectedConnection) : SelectedApp?.Name ?? "Computer · all interfaces";
+        if (selectedPid.HasValue && !capture.Running) graph.Caption += " · capture unavailable";
+        graph.ReceivedTotal = total?.Down ?? 0; graph.SentTotal = total?.Up ?? 0;
+        graph.SetHistory(timeline.Get(key, DateTime.UtcNow), rate.Item1, rate.Item2);
     }
     string ConnectionName(Connection connection)
     {
@@ -333,7 +348,8 @@ sealed class MonitorWindow : Form
     }
     void AttachRules()
     {
-        string name = tabs.SelectedTab?.Text ?? "Rule List"; if (name is not ("Rule List" or "Blocker" or "Priorities" or "Quotas")) return; ruleTab = name;
+        if (tabs.SelectedTab == null) return;
+        string name = tabs.SelectedTab.Text; if (name is not ("Rule List" or "Blocker" or "Priorities" or "Quotas")) return; ruleTab = name;
         var panel = tabs.SelectedTab!.Controls[0] as Panel; if (panel == null) return;
         if (!panel.Controls.Contains(rules)) { rules.Parent?.Controls.Remove(rules); panel.Controls.Clear(); panel.Controls.Add(rules); var bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new(4) }; bar.Controls.Add(Button("Add rule…", async () => await AddRule())); bar.Controls.Add(Button("Enable / disable", async () => await ToggleRule())); bar.Controls.Add(Button("Delete selected", async () => await DeleteRule())); bar.Controls.Add(Button("Reset quota / unblock", async () => await ResetQuota())); panel.Controls.Add(bar); }
     }

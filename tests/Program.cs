@@ -43,4 +43,11 @@ Check(PolicyCommands.AffectedQos(limit, new[] { limit, scoped }, new[] { limit, 
 Check(PolicyCommands.QosName(block.Path) != PolicyCommands.QosName(block.Path, scoped.ScopeKey), "Scoped and app policies need separate identifiers");
 var ipv6 = new Rule { Path = block.Path, Kind = RuleKind.UploadLimit, Value = 5000, LocalAddress = "2001:db8::1", LocalPort = 50000, RemoteAddress = "2606:4700:4700::1111", RemotePort = 443 };
 Check(PolicyCommands.Qos(block.Path, new[] { ipv6 }, ipv6).Contains("'2606:4700:4700::1111/128'"), "IPv6 QoS must use /128 prefix");
+var timeline = new TrafficTimeline(2); var timestamp = DateTime.UtcNow;
+timeline.Record("connection-a", timestamp.AddSeconds(-4), 200, 100); timeline.Record("connection-a", timestamp.AddSeconds(-3), 0, 0);
+Check(timeline.Get("connection-a", timestamp).Any(p => p.Down == 200), "Selecting a connection must retain its earlier traffic");
+Check(timeline.Get("connection-b", timestamp).Length == 0, "Connection charts must not inherit another connection's traffic");
+timeline.Record("connection-b", timestamp.AddSeconds(-2), 30, 40); timeline.Record("connection-c", timestamp, 50, 60);
+Check(timeline.Get("connection-a", timestamp).Length == 0 && timeline.Get("connection-c", timestamp).Length > 0, "Timeline must enforce its memory bound");
+Check(timeline.Get("connection-c", timestamp.AddMinutes(11)).Length == 0, "Traffic older than the chart window must expire");
 Console.WriteLine($"Passed {count} policy composition, escaping, and IP privacy checks.");

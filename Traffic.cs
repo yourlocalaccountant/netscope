@@ -60,20 +60,23 @@ sealed class TrafficCapture : IDisposable
 }
 sealed class TrafficGraph : Control
 {
-    readonly Queue<(DateTime Time, double Down, double Up)> history = new();
+    readonly Queue<TrafficPoint> history = new();
     public string Caption { get; set; } = "Computer · all interfaces";
     public double Download { get; private set; }
     public double Upload { get; private set; }
+    public long ReceivedTotal { get; set; }
+    public long SentTotal { get; set; }
     public TrafficGraph() { DoubleBuffered = true; BackColor = Color.White; }
     public void Clear() { history.Clear(); Invalidate(); }
-    public void Add(double down, double up) { Download = down; Upload = up; history.Enqueue((DateTime.UtcNow, down, up)); while (history.Count > 600) history.Dequeue(); Invalidate(); }
+    public void SetHistory(IEnumerable<TrafficPoint> points, double down, double up) { history.Clear(); foreach (var p in points) history.Enqueue(p); Download = down; Upload = up; Invalidate(); }
+    public void Add(double down, double up) { Download = down; Upload = up; history.Enqueue(new(DateTime.UtcNow, down, up)); while (history.Count > 600) history.Dequeue(); Invalidate(); }
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e); var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
         int left = 54, top = 48, right = Math.Max(left + 2, Width - 12), bottom = Math.Max(top + 2, Height - 26);
         using var green = new SolidBrush(Color.FromArgb(74, 169, 71)); using var red = new SolidBrush(Color.FromArgb(242, 79, 75));
-        g.DrawString("↓ " + Display.Rate(Download), Font, green, 8, 5);
-        g.DrawString("↑ " + Display.Rate(Upload), Font, red, Math.Max(150, Width / 2), 5);
+        g.DrawString("Download (" + Display.Bytes(ReceivedTotal) + ")", Font, green, 8, 5);
+        g.DrawString("Upload (" + Display.Bytes(SentTotal) + ")", Font, red, Math.Max(150, Width / 2), 5);
         g.DrawString(Caption, Font, Brushes.Gray, 8, 25);
         using var grid = new Pen(Color.FromArgb(233, 233, 233));
         for (int i = 0; i <= 4; i++) { int y = top + (bottom - top) * i / 4; g.DrawLine(grid, left, y, right, y); }
