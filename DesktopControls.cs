@@ -13,10 +13,10 @@ sealed class FlatStripRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e) { using var p = new Pen(DesktopStyle.Border); e.Graphics.DrawLine(p, 0, e.ToolStrip.Height - 1, e.ToolStrip.Width, e.ToolStrip.Height - 1); }
     protected override void OnRenderButtonBackground(ToolStripItemRenderEventArgs e)
     {
-        if (e.Item is ToolStripButton b && b.Checked) { using var brush = new SolidBrush(DesktopStyle.Accent); e.Graphics.FillRectangle(brush, new Rectangle(Point.Empty, e.Item.Size)); }
+        if (e.Item is ToolStripButton b && b.Checked) { using var brush = new SolidBrush(Equals(b.Tag, "navigation") ? DesktopStyle.Lime : DesktopStyle.Accent); e.Graphics.FillRectangle(brush, new Rectangle(Point.Empty, e.Item.Size)); }
         else if (e.Item.Selected) { using var brush = new SolidBrush(Color.FromArgb(226, 236, 243)); e.Graphics.FillRectangle(brush, new Rectangle(Point.Empty, e.Item.Size)); }
     }
-    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) { if (e.Item is ToolStripButton b && b.Checked) e.TextColor = Color.White; base.OnRenderItemText(e); }
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) { if (e.Item is ToolStripButton b && b.Checked) e.TextColor = Equals(b.Tag, "navigation") ? DesktopStyle.Ink : Color.White; base.OnRenderItemText(e); }
     sealed class Colors : ProfessionalColorTable
     {
         public override Color ToolStripGradientBegin => DesktopStyle.Chrome;

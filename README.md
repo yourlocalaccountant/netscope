@@ -30,7 +30,7 @@ Expand an application and select a connection. Info View shows protocol, separat
 
 ## Tabs and controls
 
-- **Activity**: process tree with icons, app and connection rates, remote IP:port followed by ISP and ASN columns, search, rate/name/PID ordering, online/offline/hidden views, filters, units, pause, CSV export, and expand/collapse. Double-click a process to expand it. Pause freezes the view while capture and quota checks continue.
+- **Activity**: grouped application tree with icons, app and connection rates, remote IP:port with ISP and ASN inline when enabled, search, rate/name/PID ordering, online/offline/hidden views, filters, units, pause, CSV export, and expand/collapse. Double-click an application to expand it. Pause freezes the view while capture and quota checks continue.
 - **Rule List**: add, disable, delete, or reset rules. Rules persist locally. Top switches enable/disable saved blocker, upload-limit, or DSCP rules of that type.
 - **Blocker**: inbound/outbound/both-direction application or endpoint rules using Windows Firewall. NetScope edits only its own named rules.
 - **Limiter**: Windows policy-based QoS outbound limits in decimal Kbps. Download throttling requires a separate packet-filtering driver and is labeled **Driver required**.
