@@ -5,10 +5,14 @@ on:
       - '**.cs'
       - '**.csproj'
       - 'app.manifest'
+      - 'installer/**'
       - '.github/workflows/windows-smoke.yml'
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: netscope-windows-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   windows:
     runs-on: windows-latest
@@ -30,12 +34,42 @@ jobs:
           if ($p.ExitCode -ne 0) { if (Test-Path smoke\error.txt) { Get-Content smoke\error.txt }; throw "Desktop smoke test exited $($p.ExitCode)" }
           if (-not (Test-Path smoke\report.txt)) { throw 'No smoke test report produced' }
           Get-Content smoke\report.txt
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install Inno Setup compiler' }
+          $version = ([xml](Get-Content NetScope.csproj -Raw)).Project.PropertyGroup.Version
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler is missing' }
+          & $compiler "/DAppVersion=$version" installer\NetScope.iss
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path dist\NetScope-Setup-x64.exe)) { throw 'Installer compilation failed' }
+      - name: Verify installer and uninstall preserve user data
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'netscope-install-smoke'
+          $settingsDir = Join-Path $env:LOCALAPPDATA 'NetScope'
+          New-Item -ItemType Directory -Force $settingsDir | Out-Null
+          $marker = Join-Path $settingsDir 'installer-preserve-test.marker'
+          Set-Content $marker 'keep'
+          $p = Start-Process -FilePath .\dist\NetScope-Setup-x64.exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=$installDir" -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path (Join-Path $installDir 'NetScope.exe'))) { throw 'Silent installer failed' }
+          $version = ([xml](Get-Content NetScope.csproj -Raw)).Project.PropertyGroup.Version
+          $installedVersion = (Get-Item (Join-Path $installDir 'NetScope.exe')).VersionInfo.ProductVersion
+          if (-not $installedVersion.StartsWith($version)) { throw "Installed version $installedVersion differs from $version" }
+          $uninstaller = Get-ChildItem $installDir -Filter 'unins*.exe' | Select-Object -First 1
+          if (-not $uninstaller) { throw 'Uninstaller is missing' }
+          $p = Start-Process -FilePath $uninstaller.FullName -ArgumentList '/VERYSILENT /NORESTART' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or (Test-Path (Join-Path $installDir 'NetScope.exe'))) { throw 'Silent uninstall failed' }
+          if (-not (Test-Path $marker)) { throw 'Installer removed existing user data' }
+          Remove-Item $marker
+          Add-Content smoke\report.txt 'Installer install/uninstall and user data preservation passed.'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-smoke-results
           path: smoke/
-      - name: Package and publish verified portable download
+      - name: Package and publish verified Windows downloads
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
@@ -50,15 +84,21 @@ jobs:
             }
           }
           Compress-Archive -Path package/* -DestinationPath downloads/NetScope-Windows-x64.zip -Force
+          Copy-Item dist/NetScope-Setup-x64.exe downloads/NetScope-Setup-x64.exe -Force
+          $version = ([xml](Get-Content NetScope.csproj -Raw)).Project.PropertyGroup.Version
           $hash = (Get-FileHash downloads/NetScope-Windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  NetScope-Windows-x64.zip" | Set-Content downloads/SHA256.txt -Encoding ascii
-          "NetScope 0.4.0`nSource: $env:GITHUB_SHA`nWindows smoke test: passed" | Set-Content downloads/version.txt -Encoding ascii
+          $installerHash = (Get-FileHash downloads/NetScope-Setup-x64.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $installerSize = (Get-Item downloads/NetScope-Setup-x64.exe).Length
+          if ($installerSize -gt 100000000) { throw 'GitHub Contents API cannot deliver installers larger than 100 MB' }
+          "$hash  NetScope-Windows-x64.zip`n$installerHash  NetScope-Setup-x64.exe" | Set-Content downloads/SHA256.txt -Encoding ascii
+          @{ version = $version; installer = 'NetScope-Setup-x64.exe'; sha256 = $installerHash; bytes = $installerSize } | ConvertTo-Json -Compress | Set-Content downloads/update.json -Encoding utf8NoBOM
+          "NetScope $version`nSource: $env:GITHUB_SHA`nWindows app and installer smoke tests: passed" | Set-Content downloads/version.txt -Encoding ascii
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add downloads/
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 1) {
-            git commit -m 'Publish verified NetScope 0.4 Windows download'
+            git commit -m "Publish verified NetScope $version Windows downloads"
             if ($LASTEXITCODE -ne 0) { throw 'Could not commit portable download' }
             git push origin HEAD:main
             if ($LASTEXITCODE -ne 0) { throw 'Could not upload portable download' }

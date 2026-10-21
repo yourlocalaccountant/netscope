@@ -1,5 +1,7 @@
 using NetScope;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 int count = 0;
 void Check(bool ok, string name) { if (!ok) throw new Exception(name); count++; }
 var block = new Rule { Id = "test-rule", Path = @"C:\Apps\O'Brien\app.exe", Kind = RuleKind.Block, Direction = "Both" };
@@ -69,4 +71,46 @@ Check(grouped.Length == 2, "Repeated processes from the same executable must bec
 Check(grouped.Single(g => g.Contains(100)).Contains(101), "Grouping must retain individual process identities");
 Check(ApplicationGroup.Identity(processA) == ApplicationGroup.Identity(processB), "Windows executable grouping must ignore path case");
 Check(ApplicationGroup.Create(new[] { processA with { Path = "" }, processB with { Path = "" } }).Length == 2, "Unavailable paths must not merge unrelated processes");
+var update = UpdateManifest.Parse("{\"version\":\"0.5.1\",\"installer\":\"NetScope-Setup-x64.exe\",\"sha256\":\"" + new string('a', 64) + "\",\"bytes\":123456}");
+Check(update.IsNewerThan(new Version(0, 5, 0)), "Newer installer must be detected");
+Check(!update.IsNewerThan(new Version(0, 5, 1)), "The current installer must not be offered again");
+Check(update.MatchesHash(new string('A', 64)), "SHA-256 comparison must ignore hex case");
+try { UpdateManifest.Parse("{\"version\":\"0.5.2\",\"installer\":\"another.exe\",\"sha256\":\"" + new string('a', 64) + "\",\"bytes\":123456}"); throw new Exception("An unexpected installer was accepted"); }
+catch (FormatException) { count++; }
+try { UpdateManifest.Parse("{\"version\":\"0.5.2\",\"installer\":\"NetScope-Setup-x64.exe\",\"sha256\":\"not-a-hash\",\"bytes\":123456}"); throw new Exception("A malformed checksum was accepted"); }
+catch (FormatException) { count++; }
+byte[] installerBytes = Encoding.UTF8.GetBytes(new string('N', 2048));
+string installerHash = Convert.ToHexString(SHA256.HashData(installerBytes)).ToLowerInvariant();
+string updaterManifest = $"{{\"version\":\"0.5.2\",\"installer\":\"NetScope-Setup-x64.exe\",\"sha256\":\"{installerHash}\",\"bytes\":{installerBytes.Length}}}";
+var requests = new List<string>();
+using var handler = new FakeGitHubHandler(request =>
+{
+    requests.Add(request.RequestUri!.AbsolutePath);
+    Check(request.Headers.Authorization?.Scheme == "Bearer" && request.Headers.Authorization.Parameter == "test-token", "Private update requests must carry the saved token");
+    if (request.RequestUri.AbsolutePath.EndsWith("update.json")) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"content\":\"" + Convert.ToBase64String(Encoding.UTF8.GetBytes(updaterManifest)) + "\"}") };
+    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(installerBytes) };
+});
+using var updateHttp = new HttpClient(handler);
+string updateTestFolder = Path.Combine(Path.GetTempPath(), "netscope-update-check-" + Guid.NewGuid().ToString("N"));
+try
+{
+    using var updater = new GitHubUpdater(updateHttp, updateTestFolder);
+    var checkedManifest = await updater.CheckAsync("test-token");
+    Check(checkedManifest.Version == "0.5.2", "Private update metadata must decode correctly");
+    string downloaded = await updater.DownloadAsync(checkedManifest, "test-token");
+    Check(File.ReadAllBytes(downloaded).SequenceEqual(installerBytes), "Verified installer must be saved completely");
+    Check(requests.Count == 2 && requests.All(p => p.Contains("/contents/downloads/")), "Update requests must use fixed repository content paths");
+    await updater.DownloadAsync(checkedManifest, "test-token");
+    Check(requests.Count == 2, "A verified downloaded installer should be reused");
+    var invalid = checkedManifest with { Sha256 = new string('0', 64) };
+    try { await updater.DownloadAsync(invalid, "test-token"); throw new Exception("Corrupt installer was accepted"); }
+    catch (InvalidDataException) { count++; }
+    Check(!File.Exists(downloaded + ".part"), "Failed update must remove its partial download");
+}
+finally { if (Directory.Exists(updateTestFolder)) Directory.Delete(updateTestFolder, true); }
 Console.WriteLine($"Passed {count} policy composition, escaping, and IP privacy checks.");
+
+sealed class FakeGitHubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(respond(request));
+}

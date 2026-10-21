@@ -1,10 +1,20 @@
-# NetScope 0.4
+# NetScope 0.5
 
 Windows network monitor with a NetLimiter-inspired activity tree, selected-connection properties, rules sidebar, and traffic chart. Original branding and implementation.
 
-[Download the Windows x64 portable app](https://github.com/yourlocalaccountant/netscope/raw/refs/heads/main/downloads/NetScope-Windows-x64.zip). Sign into GitHub with access to this private repository, extract the ZIP, and run **NetScope.exe**. Includes the .NET runtime; the executable is unsigned.
+[Download the Windows x64 installer](https://github.com/yourlocalaccountant/netscope/raw/refs/heads/main/downloads/NetScope-Setup-x64.exe). Sign into GitHub with access to this private repository. The installer puts NetScope in your user profile, creates a Start menu shortcut, and keeps your settings during upgrades and uninstall. It includes the .NET runtime and is unsigned.
+
+The [portable ZIP](https://github.com/yourlocalaccountant/netscope/raw/refs/heads/main/downloads/NetScope-Windows-x64.zip) is also available. Extract it before running NetScope.exe. Both downloads have SHA-256 hashes in [SHA256.txt](downloads/SHA256.txt).
 
 Use **Tools → Restart as administrator** to capture per-app/per-connection traffic and change Windows policies.
+
+## Updates
+
+Use **Tools → Check for updates** in the app. Because this repository is private, the first check asks for a fine-grained GitHub token with **Contents: read-only** access to `yourlocalaccountant/netscope`. NetScope encrypts the token with Windows Data Protection for the current user. **Tools → GitHub access for updates** replaces it; **Forget GitHub update access** deletes it. The token is never added to `settings.json` or an update URL.
+
+After access is saved, NetScope checks at startup and every 12 hours. An available version appears as an **Update** button in the toolbar. Click it to download the installer, verify the advertised size and SHA-256 hash, and open it. NetScope closes so the installer can replace the executable. The update check is quiet when the app is already current or temporarily offline. The installer wizard launches the updated app on completion. Portable users can use the same button to move to the installed version.
+
+The installer only removes its own program files on uninstall. `%LOCALAPPDATA%\NetScope` settings and any Windows Firewall/QoS rules you created remain; remove those rules in the app first if you no longer want them.
 
 ## Activity workspace
 
@@ -59,3 +69,5 @@ dotnet run --project tests/Checks.csproj
 ```
 
 Tests compile the actual policy composition, flow matching and IP classification source. The Windows GitHub Actions smoke test opens tabs and rule dialogs, checks native connection enumeration and selected-IP properties, and records a screenshot. It does not modify the runner's Firewall/QoS policies.
+
+The Windows workflow also compiles `installer/NetScope.iss` with Inno Setup, silently installs and uninstalls the result, checks the installed version and preservation of user data, then publishes the verified installer, portable ZIP, `update.json`, and SHA-256 hashes. The GitHub Actions bot writes them to `downloads/` only after these checks pass.
