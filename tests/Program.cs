@@ -61,4 +61,12 @@ Check(!DisplaySchedule.Due(timestamp, timestamp.AddSeconds(1), 5, false), "Visib
 Check(DisplaySchedule.Due(timestamp, timestamp.AddSeconds(5), 5, false), "Default display interval must update at five seconds");
 Check(!DisplaySchedule.Due(timestamp, timestamp.AddHours(1), 0, false), "Manual mode must not refresh automatically");
 Check(!DisplaySchedule.Due(timestamp, timestamp.AddSeconds(10), 5, true), "Paused display must not refresh automatically");
+var processA = new AppInfo(100, "chrome", @"C:\Apps\Chrome.exe", timestamp);
+var processB = new AppInfo(101, "chrome", @"c:\apps\chrome.EXE", timestamp);
+var processC = new AppInfo(102, "other", @"C:\Apps\Other.exe", timestamp);
+var grouped = ApplicationGroup.Create(new[] { processA, processB, processC });
+Check(grouped.Length == 2, "Repeated processes from the same executable must become one application");
+Check(grouped.Single(g => g.Contains(100)).Contains(101), "Grouping must retain individual process identities");
+Check(ApplicationGroup.Identity(processA) == ApplicationGroup.Identity(processB), "Windows executable grouping must ignore path case");
+Check(ApplicationGroup.Create(new[] { processA with { Path = "" }, processB with { Path = "" } }).Length == 2, "Unavailable paths must not merge unrelated processes");
 Console.WriteLine($"Passed {count} policy composition, escaping, and IP privacy checks.");

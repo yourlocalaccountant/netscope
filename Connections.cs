@@ -23,8 +23,10 @@ static class Program
                 try
                 {
                     await Task.Delay(4000);
+                    window.WindowState = FormWindowState.Normal; window.MaximumSize = new Size(1640, 1040); window.Size = new Size(1640, 1040); window.PerformLayout();
+                    await Task.Delay(300);
                     string report = window.SmokeTest();
-                    using var bitmap = new Bitmap(window.Width, window.Height); window.DrawToBitmap(bitmap, window.ClientRectangle);
+                    using var bitmap = new Bitmap(window.Width, window.Height); window.DrawToBitmap(bitmap, new Rectangle(Point.Empty, window.Size));
                     bitmap.Save(Path.Combine(output, "netscope.png")); File.WriteAllText(Path.Combine(output, "report.txt"), report);
                 }
                 catch (Exception ex) { Environment.ExitCode = 1; File.WriteAllText(Path.Combine(output, "error.txt"), ex.ToString()); }

@@ -1,5 +1,5 @@
 namespace NetScope;
-sealed record GridRow(string Key, object? Tag, params object?[] Values);
+sealed record GridRow(string Key, object? Tag, params object?[] Values) { public int? Height { get; init; } public int? Indent { get; init; } }
 readonly record struct GridChanges(int Inserted, int Removed, int Moved, int Cells);
 sealed class GridRows
 {
@@ -32,6 +32,8 @@ sealed class GridRows
                     grid.Rows.Remove(row); grid.Rows.Insert(index, row); row = grid.Rows[index]; rows[item.Key] = row; moved++;
                 }
                 row.Tag = item.Tag;
+                if (item.Height is int height && row.Height != height) row.Height = height;
+                if (item.Indent is int indent && row.Cells.Count > 1 && row.Cells[1].Style.Padding.Left != indent) row.Cells[1].Style.Padding = new Padding(indent, 0, 3, 0);
                 for (int column = 0; column < item.Values.Length; column++)
                     if (!Equals(row.Cells[column].Value, item.Values[column])) { row.Cells[column].Value = item.Values[column]; cells++; }
             }

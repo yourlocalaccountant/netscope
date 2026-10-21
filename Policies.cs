@@ -11,6 +11,7 @@ sealed class Preferences
     public string Filter { get; set; } = "All";
     public bool ResolveProviders { get; set; }
     public int DisplaySeconds { get; set; } = 5;
+    public bool DetailedColumns { get; set; }
     public static string DirectoryPath => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetScope");
     static string FilePath => System.IO.Path.Combine(DirectoryPath, "settings.json");
     public static Preferences Load()

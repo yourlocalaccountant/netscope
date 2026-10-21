@@ -1,4 +1,4 @@
-# NetScope 0.3
+# NetScope 0.4
 
 Windows network monitor with a NetLimiter-inspired activity tree, selected-connection properties, rules sidebar, and traffic chart. Original branding and implementation.
 
@@ -6,15 +6,17 @@ Windows network monitor with a NetLimiter-inspired activity tree, selected-conne
 
 Use **Tools → Restart as administrator** to capture per-app/per-connection traffic and change Windows policies.
 
-## Display and performance
+## Activity workspace
 
-The window opens maximized with larger text, 34-pixel rows, larger headers and consistent spacing. Application status dots and decorative connection arrows have been removed. The status column supplies online/offline state.
+The default view follows a compact desktop traffic-monitor layout: overflow-aware menu/toolbar with a persistent search box, flat navigation tabs, All/Online/Offline/Hidden buttons, and an activity tree with Name, DL Rate, UL Rate and Rule Status. Optional endpoint columns are under **View → Detailed endpoint columns**. Common controls remain available through toolbar overflow on smaller windows.
 
-The activity tree and other tables keep their row objects and update changed cells in place. Selection, scroll position and expansion are preserved. Rows are inserted/removed only when data changes. Default sorting is by name. Rate sorting remains stable between manual re-sorts, so apps do not jump around as traffic changes.
+Processes using the same executable appear under one application branch. Expand it to see the processes with remote endpoints and their connections. Rates and traffic stats on the application branch aggregate its processes; selecting a process shows that PID's traffic. Application and endpoint icons/chevrons provide hierarchy without status dots or placeholder rows. Empty applications still expand to zero children.
 
-Display updates default to **5 seconds**. Choose 2 seconds, 10 seconds, or **Manual**, and use **Update now** when needed. Background traffic sampling and quota checks continue independently. Process executable paths are cached, connection tables are sampled every 2 seconds, and the sidebar's controls are reused.
+With provider lookup enabled, ISP and ASN are shown directly beneath the IP:port in its name cell. ASN stays visible alongside long provider names. Selecting a connection opens its address/port details, rules and tools on the right. Properties, Rules and Tools can collapse; clicking a rule value opens the matching rule editor. Unavailable context actions are disabled. Technical caveats are in Help instead of taking space in the sidebar.
 
-An app with no remote IPs can still be expanded and has **zero child rows**. TCP listeners and UDP bindings are hidden from the default activity view. Choose **Listeners / UDP** explicitly to inspect their real local endpoints. No placeholder IP rows or blank arrow/dash rows are created.
+**Ctrl+F** focuses search, **Ctrl+R** updates, and **Right/Left/Space** expand or collapse nodes. Click a property value to copy it. The toolbar's **Enable capture** action restarts as administrator when needed.
+
+Rows update in place and preserve selection, scrolling and expansion. No full table rebuild occurs on sampling. Display updates remain **5 seconds** by default; choose 2 seconds, 10 seconds or Manual under **View → Display updates**. Background capture and quota checks continue independently. Listener/UDP bindings appear only in their explicit view. Empty apps and processes never produce placeholder IP rows.
 
 ## Selected-IP view
 
