@@ -1,4 +1,4 @@
-# NetScope 0.5.1
+# NetScope 0.5.2
 
 Windows network monitor with a NetLimiter-inspired activity tree, selected-connection properties, rules sidebar, and traffic chart. Original branding and implementation.
 
@@ -10,9 +10,9 @@ Use **Tools → Restart as administrator** to capture per-app/per-connection tra
 
 ## Updates
 
-Use **Tools → Check for updates** in the app. Updates come from this public repository, so no account, token, or setup step is needed. Version 0.5.1 removes any old encrypted GitHub update token saved by version 0.5.0 when it starts.
+Use **Tools → Check for updates** in the app. Updates come from this public repository through GitHub's anonymous content API, so no account, token, or setup step is needed. Version 0.5.2 removes any old encrypted GitHub update token saved by version 0.5.0 when it starts.
 
-NetScope checks at startup and every 12 hours. An available version appears as an **Update** button in the toolbar. Click it to download the installer, verify the advertised size and SHA-256 hash, and open it. NetScope closes so the installer can replace the executable. The update check is quiet when the app is already current or temporarily offline. The installer wizard launches the updated app on completion. Portable users can use the same button to move to the installed version. If version 0.5.0 has no saved private-repo token, install 0.5.1 once using the link above to enable account-free updates.
+NetScope checks at startup and every 12 hours. An available version appears as an **Update** button in the toolbar. Click it to download the installer, verify the advertised size and SHA-256 hash, and open it. NetScope closes so the installer can replace the executable. The update check is quiet when the app is already current or temporarily offline. The installer wizard launches the updated app on completion. Portable users can use the same button to move to the installed version. If version 0.5.0 has no saved private-repo token, install 0.5.2 once using the link above to enable account-free updates.
 
 The installer only removes its own program files on uninstall. `%LOCALAPPDATA%\NetScope` settings and any Windows Firewall/QoS rules you created remain; remove those rules in the app first if you no longer want them.
 

@@ -4,7 +4,7 @@ namespace NetScope;
 
 sealed class GitHubUpdater : IDisposable
 {
-    const string Downloads = "https://raw.githubusercontent.com/yourlocalaccountant/netscope/main/downloads/";
+    const string Downloads = "https://api.github.com/repos/yourlocalaccountant/netscope/contents/downloads/";
     readonly HttpClient client;
     readonly string folder;
     readonly bool ownsClient;
@@ -18,8 +18,10 @@ sealed class GitHubUpdater : IDisposable
 
     static HttpRequestMessage Request(string path)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, Downloads + path);
-        request.Headers.UserAgent.ParseAdd("NetScope-Updater/0.5.1");
+        var request = new HttpRequestMessage(HttpMethod.Get, Downloads + path + "?ref=main");
+        request.Headers.UserAgent.ParseAdd("NetScope-Updater/0.5.2");
+        request.Headers.Accept.ParseAdd("application/vnd.github.raw+json");
+        request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         return request;
     }
 

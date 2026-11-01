@@ -71,9 +71,9 @@ Check(grouped.Length == 2, "Repeated processes from the same executable must bec
 Check(grouped.Single(g => g.Contains(100)).Contains(101), "Grouping must retain individual process identities");
 Check(ApplicationGroup.Identity(processA) == ApplicationGroup.Identity(processB), "Windows executable grouping must ignore path case");
 Check(ApplicationGroup.Create(new[] { processA with { Path = "" }, processB with { Path = "" } }).Length == 2, "Unavailable paths must not merge unrelated processes");
-var update = UpdateManifest.Parse("{\"version\":\"0.5.1\",\"installer\":\"NetScope-Setup-x64.exe\",\"sha256\":\"" + new string('a', 64) + "\",\"bytes\":123456}");
-Check(update.IsNewerThan(new Version(0, 5, 0)), "Newer installer must be detected");
-Check(!update.IsNewerThan(new Version(0, 5, 1)), "The current installer must not be offered again");
+var update = UpdateManifest.Parse("{\"version\":\"0.5.2\",\"installer\":\"NetScope-Setup-x64.exe\",\"sha256\":\"" + new string('a', 64) + "\",\"bytes\":123456}");
+Check(update.IsNewerThan(new Version(0, 5, 1)), "Newer installer must be detected");
+Check(!update.IsNewerThan(new Version(0, 5, 2)), "The current installer must not be offered again");
 Check(update.MatchesHash(new string('A', 64)), "SHA-256 comparison must ignore hex case");
 try { UpdateManifest.Parse("{\"version\":\"0.5.2\",\"installer\":\"another.exe\",\"sha256\":\"" + new string('a', 64) + "\",\"bytes\":123456}"); throw new Exception("An unexpected installer was accepted"); }
 catch (FormatException) { count++; }
@@ -86,7 +86,7 @@ var requests = new List<string>();
 using var handler = new FakeGitHubHandler(request =>
 {
     requests.Add(request.RequestUri!.AbsolutePath);
-    Check(request.RequestUri.Host == "raw.githubusercontent.com" && request.Headers.Authorization == null, "Public updates must use the anonymous download endpoint");
+    Check(request.RequestUri.Host == "api.github.com" && request.Headers.Authorization == null && request.Headers.Accept.Any(a => a.MediaType == "application/vnd.github.raw+json"), "Public updates must use the anonymous raw-content API");
     if (request.RequestUri.AbsolutePath.EndsWith("update.json")) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(updaterManifest) };
     return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(installerBytes) };
 });
@@ -99,7 +99,7 @@ try
     Check(checkedManifest.Version == "0.5.2", "Public update metadata must decode correctly");
     string downloaded = await updater.DownloadAsync(checkedManifest);
     Check(File.ReadAllBytes(downloaded).SequenceEqual(installerBytes), "Verified installer must be saved completely");
-    Check(requests.Count == 2 && requests.All(p => p.Contains("/netscope/main/downloads/")), "Update requests must use fixed public download paths");
+    Check(requests.Count == 2 && requests.All(p => p.Contains("/netscope/contents/downloads/")), "Update requests must use fixed public download paths");
     await updater.DownloadAsync(checkedManifest);
     Check(requests.Count == 2, "A verified downloaded installer should be reused");
     var invalid = checkedManifest with { Sha256 = new string('0', 64) };
