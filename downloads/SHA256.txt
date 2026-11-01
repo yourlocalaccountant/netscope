@@ -1,2 +1,2 @@
-c710597c967d8cb794213242c32eb3ea124a76d700deedc85ff096b5eeff1d23  NetScope-Windows-x64.zip
-5c7e868f0eac4278cfcec1f25cdd608a393d0eb6e084e64fdbf9ba4c6a7a2963  NetScope-Setup-x64.exe
+2dc0f6496c5882ab0f67c724969458e6a7ceccbf87fb62ba3d8ba54e22548ef3  NetScope-Windows-x64.zip
+cdec20dc217a8ae01241e5789396489a2d02e91535305243dfa5191416641a1d  NetScope-Setup-x64.exe
