@@ -86,8 +86,8 @@ var requests = new List<string>();
 using var handler = new FakeGitHubHandler(request =>
 {
     requests.Add(request.RequestUri!.AbsolutePath);
-    Check(request.Headers.Authorization?.Scheme == "Bearer" && request.Headers.Authorization.Parameter == "test-token", "Private update requests must carry the saved token");
-    if (request.RequestUri.AbsolutePath.EndsWith("update.json")) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"content\":\"" + Convert.ToBase64String(Encoding.UTF8.GetBytes(updaterManifest)) + "\"}") };
+    Check(request.RequestUri.Host == "raw.githubusercontent.com" && request.Headers.Authorization == null, "Public updates must use the anonymous download endpoint");
+    if (request.RequestUri.AbsolutePath.EndsWith("update.json")) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(updaterManifest) };
     return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(installerBytes) };
 });
 using var updateHttp = new HttpClient(handler);
@@ -95,15 +95,15 @@ string updateTestFolder = Path.Combine(Path.GetTempPath(), "netscope-update-chec
 try
 {
     using var updater = new GitHubUpdater(updateHttp, updateTestFolder);
-    var checkedManifest = await updater.CheckAsync("test-token");
-    Check(checkedManifest.Version == "0.5.2", "Private update metadata must decode correctly");
-    string downloaded = await updater.DownloadAsync(checkedManifest, "test-token");
+    var checkedManifest = await updater.CheckAsync();
+    Check(checkedManifest.Version == "0.5.2", "Public update metadata must decode correctly");
+    string downloaded = await updater.DownloadAsync(checkedManifest);
     Check(File.ReadAllBytes(downloaded).SequenceEqual(installerBytes), "Verified installer must be saved completely");
-    Check(requests.Count == 2 && requests.All(p => p.Contains("/contents/downloads/")), "Update requests must use fixed repository content paths");
-    await updater.DownloadAsync(checkedManifest, "test-token");
+    Check(requests.Count == 2 && requests.All(p => p.Contains("/netscope/main/downloads/")), "Update requests must use fixed public download paths");
+    await updater.DownloadAsync(checkedManifest);
     Check(requests.Count == 2, "A verified downloaded installer should be reused");
     var invalid = checkedManifest with { Sha256 = new string('0', 64) };
-    try { await updater.DownloadAsync(invalid, "test-token"); throw new Exception("Corrupt installer was accepted"); }
+    try { await updater.DownloadAsync(invalid); throw new Exception("Corrupt installer was accepted"); }
     catch (InvalidDataException) { count++; }
     Check(!File.Exists(downloaded + ".part"), "Failed update must remove its partial download");
 }

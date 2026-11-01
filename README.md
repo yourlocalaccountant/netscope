@@ -1,8 +1,8 @@
-# NetScope 0.5
+# NetScope 0.5.1
 
 Windows network monitor with a NetLimiter-inspired activity tree, selected-connection properties, rules sidebar, and traffic chart. Original branding and implementation.
 
-[Download the Windows x64 installer](https://github.com/yourlocalaccountant/netscope/raw/refs/heads/main/downloads/NetScope-Setup-x64.exe). Sign into GitHub with access to this private repository. The installer puts NetScope in your user profile, creates a Start menu shortcut, and keeps your settings during upgrades and uninstall. It includes the .NET runtime and is unsigned.
+[Download the Windows x64 installer](https://github.com/yourlocalaccountant/netscope/raw/refs/heads/main/downloads/NetScope-Setup-x64.exe) from the [public NetScope repository](https://github.com/yourlocalaccountant/netscope). No GitHub sign-in is needed. The installer puts NetScope in your user profile, creates a Start menu shortcut, and keeps your settings during upgrades and uninstall. It includes the .NET runtime and is unsigned.
 
 The [portable ZIP](https://github.com/yourlocalaccountant/netscope/raw/refs/heads/main/downloads/NetScope-Windows-x64.zip) is also available. Extract it before running NetScope.exe. Both downloads have SHA-256 hashes in [SHA256.txt](downloads/SHA256.txt).
 
@@ -10,9 +10,9 @@ Use **Tools → Restart as administrator** to capture per-app/per-connection tra
 
 ## Updates
 
-Use **Tools → Check for updates** in the app. Because this repository is private, the first check asks for a fine-grained GitHub token with **Contents: read-only** access to `yourlocalaccountant/netscope`. NetScope encrypts the token with Windows Data Protection for the current user. **Tools → GitHub access for updates** replaces it; **Forget GitHub update access** deletes it. The token is never added to `settings.json` or an update URL.
+Use **Tools → Check for updates** in the app. Updates come from this public repository, so no account, token, or setup step is needed. Version 0.5.1 removes any old encrypted GitHub update token saved by version 0.5.0 when it starts.
 
-After access is saved, NetScope checks at startup and every 12 hours. An available version appears as an **Update** button in the toolbar. Click it to download the installer, verify the advertised size and SHA-256 hash, and open it. NetScope closes so the installer can replace the executable. The update check is quiet when the app is already current or temporarily offline. The installer wizard launches the updated app on completion. Portable users can use the same button to move to the installed version.
+NetScope checks at startup and every 12 hours. An available version appears as an **Update** button in the toolbar. Click it to download the installer, verify the advertised size and SHA-256 hash, and open it. NetScope closes so the installer can replace the executable. The update check is quiet when the app is already current or temporarily offline. The installer wizard launches the updated app on completion. Portable users can use the same button to move to the installed version. If version 0.5.0 has no saved private-repo token, install 0.5.1 once using the link above to enable account-free updates.
 
 The installer only removes its own program files on uninstall. `%LOCALAPPDATA%\NetScope` settings and any Windows Firewall/QoS rules you created remain; remove those rules in the app first if you no longer want them.
 

@@ -739,7 +739,6 @@ sealed partial class MonitorWindow : Form
         SelectTab("Activity"); scopeFilter.SelectedItem = "All"; stateFilter.SelectedItem = "All"; search.Text = ""; settings.DetailedColumns = false; ApplyColumnLayout(); Render(); VerifyStableRows(checks); VerifyGroupedView(checks); VerifyUsability(checks);
         if (activity.Rows.Count < 3) throw new Exception("Activity tree did not populate.");
         foreach (var kind in Enum.GetValues<RuleKind>()) { using var dialog = new RuleDialog(Environment.ProcessPath!, kind); dialog.CreateControl(); dialog.PerformLayout(); checks.Add("Rule dialog OK: " + kind); }
-        using (var access = new UpdateAccessDialog()) { access.CreateControl(); access.PerformLayout(); checks.Add("Private update access dialog OK"); }
         var connection = current.FirstOrDefault(c => c.Port > 0) ?? new Connection(Environment.ProcessId, "TCP", "127.0.0.1:50000", IPAddress.Parse("198.51.100.10"), 443, "Closed");
         if (known.TryGetValue(connection.Pid, out var owner)) expandedGroups.Add(ApplicationGroup.Identity(owner)); expanded.Add(connection.Pid); Select(connection); Render(); UpdateDetails();
         if (!properties.Visible || propertyValues["Remote address"].Text != connection.Flow.RemoteAddress || remotePortValue.Text != connection.Port.ToString()) throw new Exception("Selected-IP properties do not match the selected connection.");

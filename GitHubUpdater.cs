@@ -1,13 +1,10 @@
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 
 namespace NetScope;
 
 sealed class GitHubUpdater : IDisposable
 {
-    const string Repository = "yourlocalaccountant/netscope";
+    const string Downloads = "https://raw.githubusercontent.com/yourlocalaccountant/netscope/main/downloads/";
     readonly HttpClient client;
     readonly string folder;
     readonly bool ownsClient;
@@ -19,28 +16,22 @@ sealed class GitHubUpdater : IDisposable
         this.folder = folder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetScope", "updates");
     }
 
-    static HttpRequestMessage Request(string path, string token, string accept)
+    static HttpRequestMessage Request(string path)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/repos/" + Repository + "/contents/downloads/" + path + "?ref=main");
-        request.Headers.UserAgent.ParseAdd("NetScope-Updater/0.5");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.Accept.ParseAdd(accept);
-        request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+        var request = new HttpRequestMessage(HttpMethod.Get, Downloads + path);
+        request.Headers.UserAgent.ParseAdd("NetScope-Updater/0.5.1");
         return request;
     }
 
-    public async Task<UpdateManifest> CheckAsync(string token, CancellationToken cancellationToken = default)
+    public async Task<UpdateManifest> CheckAsync(CancellationToken cancellationToken = default)
     {
-        using var request = Request("update.json", token, "application/vnd.github+json");
+        using var request = Request("update.json");
         using var response = await client.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode) throw AccessError(response.StatusCode);
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        string encoded = document.RootElement.GetProperty("content").GetString() ?? "";
-        string json = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
-        return UpdateManifest.Parse(json);
+        return UpdateManifest.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
     }
 
-    public async Task<string> DownloadAsync(UpdateManifest manifest, string token, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
+    public async Task<string> DownloadAsync(UpdateManifest manifest, IProgress<long>? progress = null, CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(folder);
         string destination = Path.Combine(folder, $"NetScope-Setup-{System.Version.Parse(manifest.Version)}.exe");
@@ -49,11 +40,11 @@ sealed class GitHubUpdater : IDisposable
         string temporary = destination + ".part";
         try
         {
-            using var request = Request(UpdateManifest.InstallerName, token, "application/vnd.github.raw");
+            using var request = Request(UpdateManifest.InstallerName);
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             if (!response.IsSuccessStatusCode) throw AccessError(response.StatusCode);
             if (response.Content.Headers.ContentType?.MediaType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)
-                throw new InvalidOperationException("GitHub returned metadata instead of the installer. Check that the token can read repository contents.");
+                throw new InvalidOperationException("GitHub returned metadata instead of the installer.");
             await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             byte[] buffer = new byte[131072]; long total = 0, lastReport = 0;
@@ -86,12 +77,7 @@ sealed class GitHubUpdater : IDisposable
         return Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken));
     }
 
-    static Exception AccessError(System.Net.HttpStatusCode status) => status switch
-    {
-        System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.NotFound =>
-            new InvalidOperationException("GitHub could not open the private update. Use a token with read access to this repository's Contents."),
-        _ => new HttpRequestException($"GitHub returned HTTP {(int)status} while checking for updates.")
-    };
+    static Exception AccessError(System.Net.HttpStatusCode status) => new HttpRequestException($"GitHub returned HTTP {(int)status} while checking for updates.");
 
     public void Dispose() { if (ownsClient) client.Dispose(); }
 }
